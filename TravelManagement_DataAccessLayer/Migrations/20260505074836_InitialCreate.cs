@@ -94,11 +94,11 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     ValidTo = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
                     SpecialDaysNote = table.Column<string>(type: "text", nullable: true),
                     Locations = table.Column<string>(type: "text", nullable: true),
-                    VehiclesJson = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    RoutesJson = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    SurchargesJson = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    NotesJson = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    FooterJson = table.Column<string>(type: "nvarchar(max)", nullable: true),
+                    VehiclesJson = table.Column<string>(type: "text", nullable: false),
+                    RoutesJson = table.Column<string>(type: "text", nullable: false),
+                    SurchargesJson = table.Column<string>(type: "text", nullable: false),
+                    NotesJson = table.Column<string>(type: "text", nullable: false),
+                    FooterJson = table.Column<string>(type: "text", nullable: true),
                     Currency = table.Column<string>(type: "text", nullable: false),
                     SeasonMode = table.Column<string>(type: "text", nullable: false),
                     PeakSeasonDates = table.Column<string>(type: "text", nullable: true),
@@ -120,11 +120,11 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     type = table.Column<int>(type: "integer", nullable: false),
                     ContactNumber = table.Column<string>(type: "text", nullable: true),
                     Email = table.Column<string>(type: "text", nullable: true),
-                    CommissionRate = table.Column<decimal>(type: "numeric(18,2)", nullable: true),
+                    CommissionRate = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: true),
                     ContactPerson = table.Column<string>(type: "text", nullable: true),
                     WhatsApp = table.Column<string>(type: "text", nullable: true),
                     Address = table.Column<string>(type: "text", nullable: true),
-                    CommissionPercent = table.Column<decimal>(type: "numeric", nullable: false),
+                    CommissionPercent = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
                     PaymentTerms = table.Column<string>(type: "text", nullable: true),
                     BankAccount = table.Column<string>(type: "text", nullable: true),
                     IFSC = table.Column<string>(type: "text", nullable: true),
@@ -195,6 +195,27 @@ namespace TravelManagement_DataAccessLayer.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Vehicles", x => x.VehicleId);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AgentCashCollections",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    AgentId = table.Column<int>(type: "integer", nullable: false),
+                    AmountCollected = table.Column<decimal>(type: "numeric(18,2)", precision: 18, scale: 2, nullable: false),
+                    CollectionDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AgentCashCollections", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AgentCashCollections_TravelAgents_AgentId",
+                        column: x => x.AgentId,
+                        principalTable: "TravelAgents",
+                        principalColumn: "AgentId",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -485,6 +506,11 @@ namespace TravelManagement_DataAccessLayer.Migrations
                 });
 
             migrationBuilder.CreateIndex(
+                name: "IX_AgentCashCollections_AgentId",
+                table: "AgentCashCollections",
+                column: "AgentId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_BookingPaymentAllocations_BookingId",
                 table: "BookingPaymentAllocations",
                 column: "BookingId");
@@ -599,6 +625,9 @@ namespace TravelManagement_DataAccessLayer.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(
+                name: "AgentCashCollections");
+
             migrationBuilder.DropTable(
                 name: "BookingPaymentAllocations");
 

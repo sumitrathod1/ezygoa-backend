@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 
 namespace TravelManagement.Core.Models
 {
@@ -19,20 +18,10 @@ namespace TravelManagement.Core.Models
         public string? SpecialDaysNote { get; set; }
         public string? Locations { get; set; }
 
-        // JSON columns — stored as nvarchar(max), serialized by service layer
-        [Column(TypeName = "nvarchar(max)")]
         public string VehiclesJson { get; set; } = "[]";
-
-        [Column(TypeName = "nvarchar(max)")]
         public string RoutesJson { get; set; } = "[]";
-
-        [Column(TypeName = "nvarchar(max)")]
         public string SurchargesJson { get; set; } = "[]";
-
-        [Column(TypeName = "nvarchar(max)")]
         public string NotesJson { get; set; } = "[]";
-
-        [Column(TypeName = "nvarchar(max)")]
         public string? FooterJson { get; set; }
 
         public string Currency { get; set; } = "INR";

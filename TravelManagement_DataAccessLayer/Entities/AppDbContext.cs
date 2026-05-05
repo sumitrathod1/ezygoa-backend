@@ -24,9 +24,11 @@ namespace TravelManagement.DataAccessLayer.Entities
         public DbSet<Notification> Notifications { get; set; }
         public DbSet<ExternalEmployeeCashCollection> ExternalEmployeeCashCollections { get; set; }
         public DbSet<RateChart> RateCharts { get; set; }
+        public DbSet<AgentCashCollection> AgentCashCollections { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
+            // Decimal precision (provider-agnostic — works for both SQL Server and PostgreSQL)
             modelBuilder.Entity<Booking>().Property(b => b.Amount).HasPrecision(18, 2);
             modelBuilder.Entity<Salary>().Property(s => s.BaseSalay).HasPrecision(18, 2);
             modelBuilder.Entity<Salary>().Property(s => s.Deduction).HasPrecision(18, 2);
@@ -40,11 +42,15 @@ namespace TravelManagement.DataAccessLayer.Entities
             modelBuilder.Entity<ExternalEmployeeCashCollection>().Property(a => a.CommissionAmount).HasPrecision(18, 2);
             modelBuilder.Entity<ExternalEmployeeCashCollection>().Property(a => a.BookingAmount).HasPrecision(18, 2);
             modelBuilder.Entity<ExternalEmployeeCashCollection>().Property(a => a.TotalPaidToVendor).HasPrecision(18, 2);
-            modelBuilder.Entity<User>().HasIndex(u => u.UserName).IsUnique();
             modelBuilder.Entity<OvertimeLog>().Property(o => o.hours).HasPrecision(5, 2);
             modelBuilder.Entity<VehicleMaintenanceShedule>().Property(v => v.cost).HasPrecision(10, 2);
-            modelBuilder.Entity<TravelAgent>().Property(t => t.CommissionRate).HasColumnType("decimal(18,2)");
+            modelBuilder.Entity<TravelAgent>().Property(t => t.CommissionRate).HasPrecision(18, 2);
+            modelBuilder.Entity<TravelAgent>().Property(t => t.CommissionPercent).HasPrecision(18, 2);
             modelBuilder.Entity<Vehicle>().Property(v => v.EMIAmount).HasPrecision(18, 2);
+            modelBuilder.Entity<AgentCashCollection>().Property(a => a.AmountCollected).HasPrecision(18, 2);
+
+            // Unique indexes
+            modelBuilder.Entity<User>().HasIndex(u => u.UserName).IsUnique();
 
             // Performance indexes
             modelBuilder.Entity<Booking>().HasIndex(b => b.travelDate);

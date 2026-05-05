@@ -12,7 +12,7 @@ using TravelManagement.DataAccessLayer.Entities;
 namespace TravelManagement_DataAccessLayer.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260503130413_InitialCreate")]
+    [Migration("20260505074836_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -24,6 +24,31 @@ namespace TravelManagement_DataAccessLayer.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+
+            modelBuilder.Entity("TravelManagement.Core.Models.AgentCashCollection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AgentId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("AmountCollected")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("CollectionDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId");
+
+                    b.ToTable("AgentCashCollections");
+                });
 
             modelBuilder.Entity("TravelManagement.Core.Models.Booking", b =>
                 {
@@ -449,21 +474,21 @@ namespace TravelManagement_DataAccessLayer.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("FooterJson")
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("text");
 
                     b.Property<string>("Locations")
                         .HasColumnType("text");
 
                     b.Property<string>("NotesJson")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("text");
 
                     b.Property<string>("PeakSeasonDates")
                         .HasColumnType("text");
 
                     b.Property<string>("RoutesJson")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("text");
 
                     b.Property<string>("SeasonMode")
                         .IsRequired()
@@ -474,7 +499,7 @@ namespace TravelManagement_DataAccessLayer.Migrations
 
                     b.Property<string>("SurchargesJson")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("text");
 
                     b.Property<string>("Tagline")
                         .HasColumnType("text");
@@ -494,7 +519,7 @@ namespace TravelManagement_DataAccessLayer.Migrations
 
                     b.Property<string>("VehiclesJson")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -565,10 +590,12 @@ namespace TravelManagement_DataAccessLayer.Migrations
                         .HasColumnType("text");
 
                     b.Property<decimal>("CommissionPercent")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<decimal?>("CommissionRate")
-                        .HasColumnType("decimal(18,2)");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<string>("ContactNumber")
                         .HasColumnType("text");
@@ -814,6 +841,17 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.HasIndex("VehicleID");
 
                     b.ToTable("vehicleMaintenanceShedules");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.AgentCashCollection", b =>
+                {
+                    b.HasOne("TravelManagement.Core.Models.TravelAgent", "Agent")
+                        .WithMany()
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Agent");
                 });
 
             modelBuilder.Entity("TravelManagement.Core.Models.Booking", b =>
