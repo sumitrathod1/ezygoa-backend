@@ -188,6 +188,21 @@ QuestPDF.Settings.License = LicenseType.Community;
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider
+        .GetRequiredService<AppDbContext>();
+    try
+    {
+        db.Database.Migrate();
+        Console.WriteLine("Database migrated successfully");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Migration error: {ex.Message}");
+    }
+}
+
 // Global exception handler must be first
 app.UseGlobalExceptionHandler();
 
