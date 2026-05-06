@@ -51,24 +51,44 @@ namespace TravelManagement.API.Infrastructure
                         driver.LastAutoSalaryDate.Value.Month == today.Month)
                         continue;
 
-                    bool alreadyExists = await db.salaries.AnyAsync(s =>
+                    var noteText = $"Auto: {driver.EmployeeName} salary for {today:MMMM yyyy}";
+
+                    bool salaryExists = await db.salaries.AnyAsync(s =>
                         s.userID == driver.userId && s.Month == today.Month && s.Year == today.Year);
 
-                    if (!alreadyExists)
+                    if (!salaryExists)
                     {
-                        var salary = new Salary
+                        db.salaries.Add(new Salary
                         {
-                            userID     = driver.userId,
-                            Month      = today.Month,
-                            Year       = today.Year,
-                            BaseSalay  = driver.Salary,
+                            userID      = driver.userId,
+                            Month       = today.Month,
+                            Year        = today.Year,
+                            BaseSalay   = driver.Salary,
                             Overtimepay = 0,
-                            Deduction  = 0,
-                            NetSalaey  = driver.Salary,
-                            IsPaid     = false,
-                            Notes      = $"Auto: {driver.EmployeeName} salary for {today:MMMM yyyy}",
-                        };
-                        db.salaries.Add(salary);
+                            Deduction   = 0,
+                            NetSalaey   = driver.Salary,
+                            IsPaid      = false,
+                            Notes       = noteText,
+                        });
+                    }
+
+                    // Also create a VehicleExpence record so salary appears in Expenses page
+                    bool expenseExists = await db.vehicleExpences.AnyAsync(e =>
+                        e.CategoryType == Category.Salary &&
+                        e.Notes == noteText &&
+                        e.ExpenseDate.Month == today.Month &&
+                        e.ExpenseDate.Year  == today.Year);
+
+                    if (!expenseExists)
+                    {
+                        db.vehicleExpences.Add(new VehicleExpence
+                        {
+                            ExpenseDate  = today,
+                            Amount       = driver.Salary,
+                            CategoryType = Category.Salary,
+                            VehicleID    = null,   // salary isn't tied to a specific vehicle
+                            Notes        = noteText,
+                        });
                     }
 
                     driver.LastAutoSalaryDate = today;

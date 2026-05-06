@@ -22,7 +22,7 @@ namespace TravelManagement.Core.Models
         public DateTime ExpenseDate { get; set; }
         public decimal Amount { get; set; }
         public Category CategoryType { get; set; }
-        public int VehicleID { get; set; }
+        public int? VehicleID { get; set; }
         public string? Notes { get; set; }
         public Vehicle? Vehicle { get; set; }
     }

@@ -87,11 +87,11 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         {
             var expense = new VehicleExpence
             {
-                ExpenseDate = dto.ExpenseDate == default ? DateTime.Now : dto.ExpenseDate,
-                Amount      = dto.Amount,
-                CategoryType= ParseCategory(dto.CategoryType),
-                VehicleID   = dto.VehicleID,
-                Notes       = dto.Notes
+                ExpenseDate  = dto.ExpenseDate == default ? DateTime.Now : dto.ExpenseDate,
+                Amount       = dto.Amount,
+                CategoryType = ParseCategory(dto.CategoryType),
+                VehicleID    = dto.VehicleID,
+                Notes        = dto.Notes
             };
             await _context.AddAsync(expense);
             await _context.SaveChangesAsync();
@@ -105,7 +105,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             expense.ExpenseDate  = dto.ExpenseDate == default ? expense.ExpenseDate : dto.ExpenseDate;
             expense.Amount       = dto.Amount;
             expense.CategoryType = ParseCategory(dto.CategoryType);
-            expense.VehicleID    = dto.VehicleID;
+            expense.VehicleID    = dto.VehicleID;   // nullable OK
             expense.Notes        = dto.Notes;
             await _context.SaveChangesAsync();
             return expense;
@@ -133,7 +133,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         {
             var q = _context.vehicleExpences.Include(e => e.Vehicle).AsQueryable();
             if (vehicleId.HasValue)
-                q = q.Where(e => e.VehicleID == vehicleId.Value);
+                q = q.Where(e => e.VehicleID != null && e.VehicleID == vehicleId.Value);
             if (!string.IsNullOrEmpty(type))
             {
                 var cat = ParseCategory(type);
