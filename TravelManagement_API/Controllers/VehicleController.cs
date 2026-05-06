@@ -59,7 +59,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpPost("AddVehicleExpence")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Admin,Employee")]
         public async Task<IActionResult> AddVehicleExpense([FromBody] AddVehicleExpenceDTO dto)
         {
             if (dto is null) return ApiBadRequest("Expense data is required");
@@ -67,10 +67,52 @@ namespace TravelManagement.API.Controllers
             return ApiCreated(result, "Expense recorded successfully");
         }
 
+        [HttpPut("UpdateExpense/{id}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> UpdateExpense(int id, [FromBody] AddVehicleExpenceDTO dto)
+        {
+            if (dto is null) return ApiBadRequest("Expense data is required");
+            var result = await _vehicleService.UpdateExpenseAsync(id, dto);
+            return result is null
+                ? ApiNotFound($"Expense {id} not found")
+                : ApiOk(result, "Expense updated successfully");
+        }
+
+        [HttpDelete("DeleteExpense/{id}")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> DeleteExpense(int id)
+        {
+            var deleted = await _vehicleService.DeleteExpenseAsync(id);
+            return deleted
+                ? ApiOk<object>(null, "Expense deleted successfully")
+                : ApiNotFound($"Expense {id} not found");
+        }
+
         [HttpGet("GetAllexpence")]
         public async Task<IActionResult> GetAllExpenses()
         {
             var result = await _vehicleService.GetAllExpensesAsync();
+            return ApiOk(result);
+        }
+
+        [HttpGet("GetFilteredExpenses")]
+        public async Task<IActionResult> GetFilteredExpenses(
+            [FromQuery] int? vehicleId,
+            [FromQuery] string? type,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate)
+        {
+            var result = await _vehicleService.GetFilteredExpensesAsync(vehicleId, type, startDate, endDate);
+            return ApiOk(result);
+        }
+
+        [HttpGet("GetExpenseSummary")]
+        public async Task<IActionResult> GetExpenseSummary(
+            [FromQuery] int? vehicleId,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate)
+        {
+            var result = await _vehicleService.GetExpenseSummaryAsync(vehicleId, startDate, endDate);
             return ApiOk(result);
         }
 

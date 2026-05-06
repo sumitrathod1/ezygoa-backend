@@ -32,7 +32,18 @@ namespace TravelManagement.BusinessLogicLayer.Services.Implementation
 
         public Task<VehicleExpence> AddExpenseAsync(AddVehicleExpenceDTO dto) => _vehicleRepo.AddExpense(dto);
 
+        public Task<VehicleExpence?> UpdateExpenseAsync(int id, AddVehicleExpenceDTO dto) =>
+            _vehicleRepo.UpdateExpenseAsync(id, dto);
+
+        public Task<bool> DeleteExpenseAsync(int id) => _vehicleRepo.DeleteExpenseAsync(id);
+
         public Task<List<VehicleExpence>> GetAllExpensesAsync() => _vehicleRepo.GetAllExpensesAsync();
+
+        public Task<List<VehicleExpence>> GetFilteredExpensesAsync(int? vehicleId, string? type, DateTime? startDate, DateTime? endDate) =>
+            _vehicleRepo.GetFilteredExpensesAsync(vehicleId, type, startDate, endDate);
+
+        public Task<object> GetExpenseSummaryAsync(int? vehicleId, DateTime? startDate, DateTime? endDate) =>
+            _vehicleRepo.GetExpenseSummaryAsync(vehicleId, startDate, endDate);
 
         public Task<VehicleExpence?> GetExpenseByVehicleNumberAsync(string vehicleNumber) =>
             _vehicleRepo.GetExpenseByVehicleNumberAsync(vehicleNumber);

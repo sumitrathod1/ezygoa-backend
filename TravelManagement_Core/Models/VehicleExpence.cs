@@ -7,7 +7,12 @@ namespace TravelManagement.Core.Models
         Repair,
         Fuel,
         Towing,
-        DocumentRenew
+        DocumentRenew,
+        Salary,
+        EMI,
+        Insurance,
+        Service,
+        Other
     }
 
     public class VehicleExpence
@@ -18,6 +23,7 @@ namespace TravelManagement.Core.Models
         public decimal Amount { get; set; }
         public Category CategoryType { get; set; }
         public int VehicleID { get; set; }
+        public string? Notes { get; set; }
         public Vehicle? Vehicle { get; set; }
     }
 }

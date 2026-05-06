@@ -70,31 +70,109 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             return vehicle;
         }
 
+        private static Category ParseCategory(string type) => type switch
+        {
+            "Fuel"         => Category.Fuel,
+            "Towing"       => Category.Towing,
+            "DocumentRenew"=> Category.DocumentRenew,
+            "Salary"       => Category.Salary,
+            "EMI"          => Category.EMI,
+            "Insurance"    => Category.Insurance,
+            "Service"      => Category.Service,
+            "Other"        => Category.Other,
+            _              => Category.Repair
+        };
+
         public async Task<VehicleExpence> AddExpense(AddVehicleExpenceDTO dto)
         {
-            Category category = dto.CategoryType switch
-            {
-                "Fuel" => Category.Fuel,
-                "Towing" => Category.Towing,
-                "DocumentRenew" => Category.DocumentRenew,
-                _ => Category.Repair
-            };
-
             var expense = new VehicleExpence
             {
-                ExpenseDate = DateTime.Now,
-                Amount = dto.Amount,
-                CategoryType = category,
-                VehicleID = dto.VehicleID
+                ExpenseDate = dto.ExpenseDate == default ? DateTime.Now : dto.ExpenseDate,
+                Amount      = dto.Amount,
+                CategoryType= ParseCategory(dto.CategoryType),
+                VehicleID   = dto.VehicleID,
+                Notes       = dto.Notes
             };
             await _context.AddAsync(expense);
             await _context.SaveChangesAsync();
             return expense;
         }
 
+        public async Task<VehicleExpence?> UpdateExpenseAsync(int id, AddVehicleExpenceDTO dto)
+        {
+            var expense = await _context.vehicleExpences.FindAsync(id);
+            if (expense == null) return null;
+            expense.ExpenseDate  = dto.ExpenseDate == default ? expense.ExpenseDate : dto.ExpenseDate;
+            expense.Amount       = dto.Amount;
+            expense.CategoryType = ParseCategory(dto.CategoryType);
+            expense.VehicleID    = dto.VehicleID;
+            expense.Notes        = dto.Notes;
+            await _context.SaveChangesAsync();
+            return expense;
+        }
+
+        public async Task<bool> DeleteExpenseAsync(int id)
+        {
+            var expense = await _context.vehicleExpences.FindAsync(id);
+            if (expense == null) return false;
+            _context.vehicleExpences.Remove(expense);
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
         public async Task<List<VehicleExpence>> GetAllExpensesAsync()
         {
-            return await _context.vehicleExpences.Include(g => g.Vehicle).ToListAsync();
+            return await _context.vehicleExpences
+                .Include(g => g.Vehicle)
+                .OrderByDescending(e => e.ExpenseDate)
+                .ToListAsync();
+        }
+
+        public async Task<List<VehicleExpence>> GetFilteredExpensesAsync(
+            int? vehicleId, string? type, DateTime? startDate, DateTime? endDate)
+        {
+            var q = _context.vehicleExpences.Include(e => e.Vehicle).AsQueryable();
+            if (vehicleId.HasValue)
+                q = q.Where(e => e.VehicleID == vehicleId.Value);
+            if (!string.IsNullOrEmpty(type))
+            {
+                var cat = ParseCategory(type);
+                q = q.Where(e => e.CategoryType == cat);
+            }
+            if (startDate.HasValue)
+                q = q.Where(e => e.ExpenseDate >= startDate.Value);
+            if (endDate.HasValue)
+                q = q.Where(e => e.ExpenseDate < endDate.Value.AddDays(1));
+            return await q.OrderByDescending(e => e.ExpenseDate).ToListAsync();
+        }
+
+        public async Task<object> GetExpenseSummaryAsync(int? vehicleId, DateTime? startDate, DateTime? endDate)
+        {
+            var q = _context.vehicleExpences.Include(e => e.Vehicle).AsQueryable();
+            if (vehicleId.HasValue)
+                q = q.Where(e => e.VehicleID == vehicleId.Value);
+            if (startDate.HasValue)
+                q = q.Where(e => e.ExpenseDate >= startDate.Value);
+            if (endDate.HasValue)
+                q = q.Where(e => e.ExpenseDate < endDate.Value.AddDays(1));
+
+            var expenses = await q.ToListAsync();
+            var total    = expenses.Sum(e => e.Amount);
+
+            var byType = expenses
+                .GroupBy(e => e.CategoryType.ToString())
+                .Select(g => new { type = g.Key, total = g.Sum(e => e.Amount), count = g.Count() })
+                .OrderByDescending(g => g.total)
+                .ToList();
+
+            var byVehicle = expenses
+                .GroupBy(e => new { e.VehicleID, name = e.Vehicle?.VehicleName ?? "Unknown" })
+                .Select(g => new { vehicleId = g.Key.VehicleID, vehicleName = g.Key.name,
+                                   total = g.Sum(e => e.Amount), count = g.Count() })
+                .OrderByDescending(g => g.total)
+                .ToList();
+
+            return new { total, count = expenses.Count, byType, byVehicle };
         }
 
         public async Task<VehicleExpence?> GetExpenseByVehicleNumberAsync(string vehicleNumber)
