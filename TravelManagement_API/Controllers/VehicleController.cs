@@ -106,6 +106,17 @@ namespace TravelManagement.API.Controllers
             return ApiOk(result);
         }
 
+        [HttpGet("GetCombinedExpenses")]
+        public async Task<IActionResult> GetCombinedExpenses(
+            [FromQuery] int? vehicleId,
+            [FromQuery] string? type,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate)
+        {
+            var result = await _vehicleService.GetCombinedExpensesAsync(vehicleId, type, startDate, endDate);
+            return ApiOk(result);
+        }
+
         [HttpGet("GetExpenseSummary")]
         public async Task<IActionResult> GetExpenseSummary(
             [FromQuery] int? vehicleId,

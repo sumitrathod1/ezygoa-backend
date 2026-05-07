@@ -146,6 +146,89 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             return await q.OrderByDescending(e => e.ExpenseDate).ToListAsync();
         }
 
+        public async Task<List<CombinedExpenseDTO>> GetCombinedExpensesAsync(
+            int? vehicleId, string? type, DateTime? startDate, DateTime? endDate)
+        {
+            // --- vehicle expenses ---
+            var q = _context.vehicleExpences.Include(e => e.Vehicle).AsQueryable();
+            if (vehicleId.HasValue)
+                q = q.Where(e => e.VehicleID != null && e.VehicleID == vehicleId.Value);
+            if (!string.IsNullOrEmpty(type))
+                q = q.Where(e => e.CategoryType == ParseCategory(type));
+            if (startDate.HasValue)
+                q = q.Where(e => e.ExpenseDate >= startDate.Value);
+            if (endDate.HasValue)
+                q = q.Where(e => e.ExpenseDate < endDate.Value.AddDays(1));
+
+            var vehicleExpenses = await q.ToListAsync();
+
+            var combined = vehicleExpenses.Select(e => new CombinedExpenseDTO
+            {
+                VehicleExpenceId = e.VehicleExpenceId,
+                SalaryId         = null,
+                ExpenseDate      = e.ExpenseDate,
+                Amount           = e.Amount,
+                CategoryType     = e.CategoryType.ToString(),
+                VehicleID        = e.VehicleID,
+                Vehicle          = e.Vehicle == null ? null : new CombinedExpenseVehicle
+                {
+                    VehicleName   = e.Vehicle.VehicleName,
+                    VehicleNumber = e.Vehicle.VehicleNumber,
+                },
+                Notes          = e.Notes,
+                DriverName     = null,
+                IsSalaryRecord = false,
+            }).ToList();
+
+            // --- salary table entries (only when not filtering by vehicle or non-salary type) ---
+            bool includeSalaries = !vehicleId.HasValue &&
+                (string.IsNullOrEmpty(type) || string.Equals(type, "Salary", StringComparison.OrdinalIgnoreCase));
+
+            if (includeSalaries)
+            {
+                // Notes of auto-salary vehicleExpences already in the list (to avoid double-count)
+                var existingSalaryNotes = vehicleExpenses
+                    .Where(e => e.CategoryType == Category.Salary && e.Notes != null)
+                    .Select(e => e.Notes!)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                var salaryQ = _context.salaries.Include(s => s.user).AsQueryable();
+                if (startDate.HasValue)
+                    salaryQ = salaryQ.Where(s =>
+                        s.Year > startDate.Value.Year ||
+                        (s.Year == startDate.Value.Year && s.Month >= startDate.Value.Month));
+                if (endDate.HasValue)
+                    salaryQ = salaryQ.Where(s =>
+                        s.Year < endDate.Value.Year ||
+                        (s.Year == endDate.Value.Year && s.Month <= endDate.Value.Month));
+
+                var salaries = await salaryQ.ToListAsync();
+
+                foreach (var s in salaries)
+                {
+                    // Skip entries already represented as vehicleExpences (auto-salary dedup)
+                    var autoNote = $"Auto: {s.user?.EmployeeName} salary for {new DateTime(s.Year, s.Month, 1):MMMM yyyy}";
+                    if (existingSalaryNotes.Contains(autoNote)) continue;
+
+                    combined.Add(new CombinedExpenseDTO
+                    {
+                        VehicleExpenceId = null,
+                        SalaryId         = s.SalaryId,
+                        ExpenseDate      = new DateTime(s.Year, s.Month, 1),
+                        Amount           = s.NetSalaey,
+                        CategoryType     = "Salary",
+                        VehicleID        = null,
+                        Vehicle          = null,
+                        Notes            = s.Notes,
+                        DriverName       = s.user?.EmployeeName,
+                        IsSalaryRecord   = true,
+                    });
+                }
+            }
+
+            return combined.OrderByDescending(e => e.ExpenseDate).ToList();
+        }
+
         public async Task<object> GetExpenseSummaryAsync(int? vehicleId, DateTime? startDate, DateTime? endDate)
         {
             var q = _context.vehicleExpences.Include(e => e.Vehicle).AsQueryable();

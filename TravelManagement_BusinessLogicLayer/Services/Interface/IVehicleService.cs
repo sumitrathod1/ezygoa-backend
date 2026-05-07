@@ -14,6 +14,7 @@ namespace TravelManagement.BusinessLogicLayer.Services.Interface
         Task<bool> DeleteExpenseAsync(int id);
         Task<List<VehicleExpence>> GetAllExpensesAsync();
         Task<List<VehicleExpence>> GetFilteredExpensesAsync(int? vehicleId, string? type, DateTime? startDate, DateTime? endDate);
+        Task<List<CombinedExpenseDTO>> GetCombinedExpensesAsync(int? vehicleId, string? type, DateTime? startDate, DateTime? endDate);
         Task<object> GetExpenseSummaryAsync(int? vehicleId, DateTime? startDate, DateTime? endDate);
         Task<VehicleExpence?> GetExpenseByVehicleNumberAsync(string vehicleNumber);
         Task<Documents> AddDocumentAsync(Documents document);
