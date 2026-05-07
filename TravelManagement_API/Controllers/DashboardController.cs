@@ -121,5 +121,54 @@ namespace TravelManagement.API.Controllers
                 availableDrivers
             });
         }
+
+        /// <summary>
+        /// Unified expense + revenue summary for a given month.
+        /// Single source of truth used by home, earnings, and expenses pages.
+        /// vehicleExpenses = vehicleExpences (non-Salary categories)
+        /// salaryExpenses  = salaries table for that month
+        /// No double-counting: salary lives exclusively in the salaries table.
+        /// </summary>
+        [HttpGet("expense-summary")]
+        public async Task<IActionResult> GetExpenseSummary(
+            [FromQuery] int? month,
+            [FromQuery] int? year)
+        {
+            var today = DateTime.Today;
+            var m     = month ?? today.Month;
+            var y     = year  ?? today.Year;
+
+            var vehicleExpenses = await _db.vehicleExpences
+                .AsNoTracking()
+                .Where(e => e.ExpenseDate.Month == m
+                         && e.ExpenseDate.Year  == y
+                         && e.CategoryType      != Category.Salary)
+                .SumAsync(e => (decimal?)e.Amount) ?? 0m;
+
+            var salaryExpenses = await _db.salaries
+                .AsNoTracking()
+                .Where(s => s.Month == m && s.Year == y)
+                .SumAsync(s => (decimal?)s.NetSalaey) ?? 0m;
+
+            var revenue = await _db.Bookings
+                .AsNoTracking()
+                .Where(b => b.Status         != Status.Canceled
+                         && b.travelDate.Month == m
+                         && b.travelDate.Year  == y)
+                .SumAsync(b => (decimal?)b.Amount) ?? 0m;
+
+            var totalExpenses = vehicleExpenses + salaryExpenses;
+
+            return ApiOk(new
+            {
+                month          = m,
+                year           = y,
+                vehicleExpenses,
+                salaryExpenses,
+                totalExpenses,
+                revenue,
+                netProfit = revenue - totalExpenses,
+            });
+        }
     }
 }

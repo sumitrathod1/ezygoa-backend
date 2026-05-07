@@ -61,7 +61,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<List<Salary>> GenerateMonthAsync(int month, int year)
         {
             var employees = await _context.Users
-                .Where(u => u.IsSalaryActive && u.Role == Role.Employee && u.Status)
+                .Where(u => u.IsSalaryActive && !u.IsDeleted && u.Role == Role.Employee && u.Status)
                 .ToListAsync();
 
             var created = new List<Salary>();

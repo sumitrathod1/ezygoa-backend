@@ -18,11 +18,9 @@ namespace TravelManagement.API.Infrastructure
 
         public Task StartAsync(CancellationToken ct)
         {
-            // Fire immediately on start, then every 24 h
-            var now           = DateTime.Now;
-            var nextMidnight  = now.Date.AddDays(1);
-            var delay         = nextMidnight - now;
-            _timer = new Timer(RunSalaryCheck, null, delay, TimeSpan.FromHours(24));
+            var now          = DateTime.Now;
+            var nextMidnight = now.Date.AddDays(1);
+            _timer = new Timer(RunSalaryCheck, null, nextMidnight - now, TimeSpan.FromHours(24));
             return Task.CompletedTask;
         }
 
@@ -36,23 +34,21 @@ namespace TravelManagement.API.Infrastructure
                 using var scope = _services.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-                // Drivers eligible for auto-salary today
+                // Only active, non-deleted drivers whose salary day matches today
+                // and who have not yet received salary for this month
                 var drivers = await db.Users
-                    .Where(u => u.IsSalaryActive && !u.IsDeleted && u.Status && u.Licence != null)
+                    .Where(u => u.IsSalaryActive
+                             && !u.IsDeleted
+                             && u.Status
+                             && u.Licence != null
+                             && u.SalaryDay == today.Day
+                             && (u.LastAutoSalaryDate == null
+                                 || u.LastAutoSalaryDate.Value.Year  != today.Year
+                                 || u.LastAutoSalaryDate.Value.Month != today.Month))
                     .ToListAsync();
 
                 foreach (var driver in drivers)
                 {
-                    if (driver.SalaryDay != today.Day) continue;
-
-                    // Skip if already created this month
-                    if (driver.LastAutoSalaryDate.HasValue &&
-                        driver.LastAutoSalaryDate.Value.Year  == today.Year &&
-                        driver.LastAutoSalaryDate.Value.Month == today.Month)
-                        continue;
-
-                    var noteText = $"Auto: {driver.EmployeeName} salary for {today:MMMM yyyy}";
-
                     bool salaryExists = await db.salaries.AnyAsync(s =>
                         s.userID == driver.userId && s.Month == today.Month && s.Year == today.Year);
 
@@ -68,26 +64,7 @@ namespace TravelManagement.API.Infrastructure
                             Deduction   = 0,
                             NetSalaey   = driver.Salary,
                             IsPaid      = false,
-                            Notes       = noteText,
-                        });
-                    }
-
-                    // Also create a VehicleExpence record so salary appears in Expenses page
-                    bool expenseExists = await db.vehicleExpences.AnyAsync(e =>
-                        e.CategoryType == Category.Salary &&
-                        e.Notes == noteText &&
-                        e.ExpenseDate.Month == today.Month &&
-                        e.ExpenseDate.Year  == today.Year);
-
-                    if (!expenseExists)
-                    {
-                        db.vehicleExpences.Add(new VehicleExpence
-                        {
-                            ExpenseDate  = today,
-                            Amount       = driver.Salary,
-                            CategoryType = Category.Salary,
-                            VehicleID    = null,   // salary isn't tied to a specific vehicle
-                            Notes        = noteText,
+                            Notes       = $"Auto: {driver.EmployeeName} salary for {today:MMMM yyyy}",
                         });
                     }
 
