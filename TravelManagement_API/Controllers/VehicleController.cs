@@ -195,6 +195,43 @@ namespace TravelManagement.API.Controllers
             return ApiOk(result);
         }
 
+        [HttpGet("{id}/emi-statement")]
+        public async Task<IActionResult> GetEmiStatement(int id)
+        {
+            var vehicle = await _context.Vehicles.AsNoTracking()
+                .FirstOrDefaultAsync(v => v.VehicleId == id);
+            if (vehicle == null) return ApiNotFound($"Vehicle {id} not found");
+
+            var payments = await _context.vehicleExpences
+                .AsNoTracking()
+                .Where(e => e.VehicleID == id && e.CategoryType == Category.EMI)
+                .OrderBy(e => e.ExpenseDate)
+                .Select(e => new
+                {
+                    e.VehicleExpenceId,
+                    e.ExpenseDate,
+                    e.Amount,
+                    e.Notes,
+                })
+                .ToListAsync();
+
+            return ApiOk(new
+            {
+                vehicleId     = vehicle.VehicleId,
+                vehicleName   = vehicle.VehicleName,
+                vehicleNumber = vehicle.VehicleNumber,
+                emiLender     = vehicle.EMILender,
+                emiAmount     = vehicle.EMIAmount,
+                emiDay        = vehicle.EMIDay,
+                emiStartDate  = vehicle.EMIStartDate,
+                emiEndDate    = vehicle.EMIEndDate,
+                totalEMIs     = vehicle.TotalEMIs,
+                paidEMIs      = vehicle.PaidEMIs,
+                totalPaid     = payments.Sum(p => p.Amount),
+                payments,
+            });
+        }
+
         [HttpGet("available")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetAvailableVehicles([FromQuery] DateOnly? date = null)

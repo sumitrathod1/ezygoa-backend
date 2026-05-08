@@ -79,6 +79,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             "EMI"          => Category.EMI,
             "Insurance"    => Category.Insurance,
             "Service"      => Category.Service,
+            "Tyre"         => Category.Tyre,
             "Other"        => Category.Other,
             _              => Category.Repair
         };

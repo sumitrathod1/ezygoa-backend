@@ -12,7 +12,8 @@ namespace TravelManagement.Core.Models
         EMI,
         Insurance,
         Service,
-        Other
+        Other,
+        Tyre
     }
 
     public class VehicleExpence

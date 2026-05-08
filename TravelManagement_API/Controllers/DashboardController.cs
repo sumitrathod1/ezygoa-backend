@@ -50,7 +50,6 @@ namespace TravelManagement.API.Controllers
                 .SumAsync(b => (decimal?)b.Amount)) ?? 0;
 
             // Per-date lightweight data for the requested month
-            // EF Core projects a LEFT JOIN on Vehicle automatically — no Include needed
             var monthRows = await _db.Bookings
                 .AsNoTracking()
                 .Where(b => b.Status != Status.Canceled
@@ -123,11 +122,9 @@ namespace TravelManagement.API.Controllers
         }
 
         /// <summary>
-        /// Unified expense + revenue summary for a given month.
-        /// Single source of truth used by home, earnings, and expenses pages.
-        /// vehicleExpenses = vehicleExpences (non-Salary categories)
-        /// salaryExpenses  = salaries table for that month
-        /// No double-counting: salary lives exclusively in the salaries table.
+        /// Full expense + revenue summary for a given month.
+        /// Returns KPI totals, by-category breakdown, salary per driver,
+        /// vehicle-wise breakdown, and a 6-month trend.
         /// </summary>
         [HttpGet("expense-summary")]
         public async Task<IActionResult> GetExpenseSummary(
@@ -138,26 +135,136 @@ namespace TravelManagement.API.Controllers
             var m     = month ?? today.Month;
             var y     = year  ?? today.Year;
 
-            var vehicleExpenses = await _db.vehicleExpences
+            // --- Vehicle expenses (Salary category excluded — lives in salaries table) ---
+            var vehicleExpList = await _db.vehicleExpences
                 .AsNoTracking()
+                .Include(e => e.Vehicle)
                 .Where(e => e.ExpenseDate.Month == m
                          && e.ExpenseDate.Year  == y
                          && e.CategoryType      != Category.Salary)
-                .SumAsync(e => (decimal?)e.Amount) ?? 0m;
+                .ToListAsync();
 
-            var salaryExpenses = await _db.salaries
+            var vehicleExpenses = vehicleExpList.Sum(e => e.Amount);
+
+            // --- Salary expenses from salaries table ---
+            var salaryList = await _db.salaries
                 .AsNoTracking()
+                .Include(s => s.user)
                 .Where(s => s.Month == m && s.Year == y)
-                .SumAsync(s => (decimal?)s.NetSalaey) ?? 0m;
+                .ToListAsync();
 
-            var revenue = await _db.Bookings
+            var salaryExpenses = salaryList.Sum(s => s.NetSalaey);
+
+            // --- Revenue ---
+            var revenue = (await _db.Bookings
                 .AsNoTracking()
                 .Where(b => b.Status         != Status.Canceled
                          && b.travelDate.Month == m
                          && b.travelDate.Year  == y)
-                .SumAsync(b => (decimal?)b.Amount) ?? 0m;
+                .SumAsync(b => (decimal?)b.Amount)) ?? 0m;
 
             var totalExpenses = vehicleExpenses + salaryExpenses;
+
+            // --- By-category breakdown (vehicle expenses only) ---
+            var byCategory = vehicleExpList
+                .GroupBy(e => e.CategoryType.ToString())
+                .Select(g => new { category = g.Key, amount = g.Sum(e => e.Amount), count = g.Count() })
+                .OrderByDescending(g => g.amount)
+                .ToList<object>();
+
+            // --- Salary details per driver ---
+            var salaryDetails = salaryList
+                .Select(s => new
+                {
+                    salaryId   = s.SalaryId,
+                    driverName = s.user?.EmployeeName ?? "Unknown",
+                    amount     = s.NetSalaey,
+                    isPaid     = s.IsPaid,
+                    paidDate   = s.PaidDate,
+                    month      = s.Month,
+                    year       = s.Year,
+                })
+                .OrderBy(s => s.driverName)
+                .ToList<object>();
+
+            // --- Vehicle-wise breakdown ---
+            var vehicleBreakdown = vehicleExpList
+                .Where(e => e.VehicleID.HasValue)
+                .GroupBy(e => new
+                {
+                    id   = e.VehicleID!.Value,
+                    name = e.Vehicle?.VehicleName   ?? "Unknown",
+                    num  = e.Vehicle?.VehicleNumber ?? "",
+                })
+                .Select(g => new
+                {
+                    vehicleId     = g.Key.id,
+                    vehicleName   = g.Key.name,
+                    vehicleNumber = g.Key.num,
+                    fuel      = g.Where(e => e.CategoryType == Category.Fuel).Sum(e => e.Amount),
+                    repair    = g.Where(e => e.CategoryType == Category.Repair).Sum(e => e.Amount),
+                    emi       = g.Where(e => e.CategoryType == Category.EMI).Sum(e => e.Amount),
+                    service   = g.Where(e => e.CategoryType == Category.Service).Sum(e => e.Amount),
+                    insurance = g.Where(e => e.CategoryType == Category.Insurance).Sum(e => e.Amount),
+                    tyre      = g.Where(e => e.CategoryType == Category.Tyre).Sum(e => e.Amount),
+                    other     = g.Where(e => e.CategoryType == Category.Other
+                                          || e.CategoryType == Category.Towing
+                                          || e.CategoryType == Category.DocumentRenew).Sum(e => e.Amount),
+                    total     = g.Sum(e => e.Amount),
+                })
+                .OrderByDescending(v => v.total)
+                .ToList<object>();
+
+            // --- Monthly trend: current month + 5 previous months ---
+            var trendStart    = new DateTime(y, m, 1).AddMonths(-5);
+            var trendEnd      = new DateTime(y, m, DateTime.DaysInMonth(y, m), 23, 59, 59);
+            var trendStartDate = DateOnly.FromDateTime(trendStart);
+            var trendEndDate   = DateOnly.FromDateTime(trendEnd);
+
+            int trendStartYM = trendStart.Year * 100 + trendStart.Month;
+            int currentYM    = y * 100 + m;
+
+            var trendBookings = await _db.Bookings
+                .AsNoTracking()
+                .Where(b => b.Status != Status.Canceled
+                         && b.travelDate >= trendStartDate
+                         && b.travelDate <= trendEndDate)
+                .GroupBy(b => new { b.travelDate.Year, b.travelDate.Month })
+                .Select(g => new { g.Key.Year, g.Key.Month, revenue = g.Sum(b => (decimal?)b.Amount) ?? 0m })
+                .ToListAsync();
+
+            var trendVehExp = await _db.vehicleExpences
+                .AsNoTracking()
+                .Where(e => e.ExpenseDate >= trendStart
+                         && e.ExpenseDate <= trendEnd
+                         && e.CategoryType != Category.Salary)
+                .GroupBy(e => new { e.ExpenseDate.Year, e.ExpenseDate.Month })
+                .Select(g => new { g.Key.Year, g.Key.Month, amount = g.Sum(e => (decimal?)e.Amount) ?? 0m })
+                .ToListAsync();
+
+            var trendSalaries = await _db.salaries
+                .AsNoTracking()
+                .Where(s => s.Year * 100 + s.Month >= trendStartYM
+                         && s.Year * 100 + s.Month <= currentYM)
+                .GroupBy(s => new { s.Year, s.Month })
+                .Select(g => new { g.Key.Year, g.Key.Month, amount = g.Sum(s => (decimal?)s.NetSalaey) ?? 0m })
+                .ToListAsync();
+
+            var monthlyTrend = Enumerable.Range(0, 6).Select(i =>
+            {
+                var d  = new DateTime(y, m, 1).AddMonths(-5 + i);
+                var bk = trendBookings.FirstOrDefault(x => x.Year == d.Year && x.Month == d.Month);
+                var ex = trendVehExp.FirstOrDefault(x => x.Year  == d.Year && x.Month == d.Month);
+                var sl = trendSalaries.FirstOrDefault(x => x.Year == d.Year && x.Month == d.Month);
+                return new
+                {
+                    month    = d.Month,
+                    year     = d.Year,
+                    label    = d.ToString("MMM yy"),
+                    revenue  = bk?.revenue ?? 0m,
+                    expenses = (ex?.amount ?? 0m) + (sl?.amount ?? 0m),
+                };
+            }).ToList<object>();
 
             return ApiOk(new
             {
@@ -167,7 +274,11 @@ namespace TravelManagement.API.Controllers
                 salaryExpenses,
                 totalExpenses,
                 revenue,
-                netProfit = revenue - totalExpenses,
+                netProfit      = revenue - totalExpenses,
+                byCategory,
+                salaryDetails,
+                vehicleBreakdown,
+                monthlyTrend,
             });
         }
     }

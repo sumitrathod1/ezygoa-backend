@@ -182,6 +182,7 @@ builder.Services.AddScoped<ISalaryService, SalaryService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<EmailBookingBackgroundService>();
 builder.Services.AddHostedService<AutoSalaryHostedService>();
+builder.Services.AddHostedService<AutoEMIHostedService>();
 
 // QuestPDF license
 QuestPDF.Settings.License = LicenseType.Community;
