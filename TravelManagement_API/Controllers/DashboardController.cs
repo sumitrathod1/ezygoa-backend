@@ -135,7 +135,7 @@ namespace TravelManagement.API.Controllers
             var m     = month ?? today.Month;
             var y     = year  ?? today.Year;
 
-            // --- Vehicle expenses (Salary category excluded — lives in salaries table) ---
+            // --- Vehicle expenses (Salary lives in salaries table, created auto by AutoSalaryHostedService) ---
             var vehicleExpList = await _db.vehicleExpences
                 .AsNoTracking()
                 .Include(e => e.Vehicle)
@@ -146,7 +146,8 @@ namespace TravelManagement.API.Controllers
 
             var vehicleExpenses = vehicleExpList.Sum(e => e.Amount);
 
-            // --- Salary expenses from salaries table ---
+            // --- Salary expenses: ALL auto-created records for this month (no IsPaid filter).
+            //     Active drivers get a salary record auto-created; it counts as an expense immediately. ---
             var salaryList = await _db.salaries
                 .AsNoTracking()
                 .Include(s => s.user)
@@ -172,8 +173,14 @@ namespace TravelManagement.API.Controllers
                 .OrderByDescending(g => g.amount)
                 .ToList<object>();
 
-            // --- Salary details per driver ---
-            var salaryDetails = salaryList
+            // --- Salary details per driver (all records for this month, for reference in the UI) ---
+            var allMonthSalaries = await _db.salaries
+                .AsNoTracking()
+                .Include(s => s.user)
+                .Where(s => s.Month == m && s.Year == y)
+                .ToListAsync();
+
+            var salaryDetails = allMonthSalaries
                 .Select(s => new
                 {
                     salaryId   = s.SalaryId,
@@ -221,9 +228,6 @@ namespace TravelManagement.API.Controllers
             var trendStartDate = DateOnly.FromDateTime(trendStart);
             var trendEndDate   = DateOnly.FromDateTime(trendEnd);
 
-            int trendStartYM = trendStart.Year * 100 + trendStart.Month;
-            int currentYM    = y * 100 + m;
-
             var trendBookings = await _db.Bookings
                 .AsNoTracking()
                 .Where(b => b.Status != Status.Canceled
@@ -232,6 +236,9 @@ namespace TravelManagement.API.Controllers
                 .GroupBy(b => new { b.travelDate.Year, b.travelDate.Month })
                 .Select(g => new { g.Key.Year, g.Key.Month, revenue = g.Sum(b => (decimal?)b.Amount) ?? 0m })
                 .ToListAsync();
+
+            int trendStartYM = trendStart.Year * 100 + trendStart.Month;
+            int currentYM    = y * 100 + m;
 
             var trendVehExp = await _db.vehicleExpences
                 .AsNoTracking()
@@ -242,6 +249,7 @@ namespace TravelManagement.API.Controllers
                 .Select(g => new { g.Key.Year, g.Key.Month, amount = g.Sum(e => (decimal?)e.Amount) ?? 0m })
                 .ToListAsync();
 
+            // Salary trend: ALL auto-created records count as expenses (no IsPaid filter)
             var trendSalaries = await _db.salaries
                 .AsNoTracking()
                 .Where(s => s.Year * 100 + s.Month >= trendStartYM

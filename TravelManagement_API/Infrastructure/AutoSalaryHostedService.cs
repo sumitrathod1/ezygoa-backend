@@ -66,6 +66,9 @@ namespace TravelManagement.API.Infrastructure
                             IsPaid      = false,
                             Notes       = $"Auto: {driver.EmployeeName} salary for {today:MMMM yyyy}",
                         });
+                        // The salary record itself counts as an expense immediately.
+                        // No need to also create a VehicleExpence row — the expense dashboard
+                        // reads all salary records (regardless of IsPaid) for active drivers.
                     }
 
                     driver.LastAutoSalaryDate = today;

@@ -111,36 +111,40 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<bool> CancelBookingAsync(int bookingId)
         {
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
+            var strategy = _context.Database.CreateExecutionStrategy();
+            return await strategy.ExecuteAsync(async () =>
             {
-                var booking = await _context.Bookings.FirstOrDefaultAsync(b => b.BookingId == bookingId);
-                if (booking == null) return false;
-
-                booking.Status = Status.Canceled;
-                booking.Amount = 0;
-
-                var payments = await _context.Payments.Where(p => p.BookingId == bookingId).ToListAsync();
-                foreach (var payment in payments) payment.AmountPaid = 0;
-
-                var allocations = await _context.BookingPaymentAllocations
-                    .Where(a => a.BookingId == bookingId).ToListAsync();
-                foreach (var allocation in allocations)
+                await using var transaction = await _context.Database.BeginTransactionAsync();
+                try
                 {
-                    allocation.AllocatedAmount = 0;
-                    allocation.PaidAmount = 0;
-                }
+                    var booking = await _context.Bookings.FirstOrDefaultAsync(b => b.BookingId == bookingId);
+                    if (booking == null) return false;
 
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                Console.WriteLine("CancelBooking Error: " + ex.Message);
-                return false;
-            }
+                    booking.Status = Status.Canceled;
+                    booking.Amount = 0;
+
+                    var payments = await _context.Payments.Where(p => p.BookingId == bookingId).ToListAsync();
+                    foreach (var payment in payments) payment.AmountPaid = 0;
+
+                    var allocations = await _context.BookingPaymentAllocations
+                        .Where(a => a.BookingId == bookingId).ToListAsync();
+                    foreach (var allocation in allocations)
+                    {
+                        allocation.AllocatedAmount = 0;
+                        allocation.PaidAmount = 0;
+                    }
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    await transaction.RollbackAsync();
+                    Console.WriteLine("CancelBooking Error: " + ex.Message);
+                    return false;
+                }
+            });
         }
 
         public async Task<Booking> CreateBooking(NewBookiingDTO dto)
@@ -428,44 +432,52 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task AssignBookingToExternalVendor(AssignExternalVendorDTO dto)
         {
-            using var tx = await _context.Database.BeginTransactionAsync();
+            var strategy = _context.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var tx = await _context.Database.BeginTransactionAsync();
 
-            var booking = await _context.Bookings.FirstOrDefaultAsync(b => b.BookingId == dto.BookingId);
-            if (booking == null) throw new Exception("Booking not found");
+                var booking = await _context.Bookings.FirstOrDefaultAsync(b => b.BookingId == dto.BookingId);
+                if (booking == null) throw new Exception("Booking not found");
 
-            var vendor = await UpdateExternalEmployee(dto.VendorName, dto.VendorNumber);
-            booking.Userid = null;
-            booking.VehicleId = null;
-            booking.ExternalEmployeeId = vendor.externalEmployeeID;
-            booking.Payment = Payment.ExternalEmployee;
-            booking.Status = Status.Assigned;
+                var vendor = await UpdateExternalEmployee(dto.VendorName, dto.VendorNumber);
+                booking.Userid = null;
+                booking.VehicleId = null;
+                booking.ExternalEmployeeId = vendor.externalEmployeeID;
+                booking.Payment = Payment.ExternalEmployee;
+                booking.Status = Status.Assigned;
 
-            _context.Bookings.Update(booking);
-            await UpsertExternalSettlement(booking.BookingId, vendor.externalEmployeeID,
-                booking.Amount, dto.CommissionAmount, dto.CashCollectedBy, dto.AdvancePay);
+                _context.Bookings.Update(booking);
+                await UpsertExternalSettlement(booking.BookingId, vendor.externalEmployeeID,
+                    booking.Amount, dto.CommissionAmount, dto.CashCollectedBy, dto.AdvancePay);
 
-            await tx.CommitAsync();
+                await tx.CommitAsync();
+            });
         }
 
         public async Task SettleSettlementAsync(SettleSettlementDTO dto)
         {
-            using var tx = await _context.Database.BeginTransactionAsync();
+            var strategy = _context.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var tx = await _context.Database.BeginTransactionAsync();
 
-            var settlement = await _context.ExternalEmployeeCashCollections
-                .FirstOrDefaultAsync(x => x.BookingId == dto.BookingId);
+                var settlement = await _context.ExternalEmployeeCashCollections
+                    .FirstOrDefaultAsync(x => x.BookingId == dto.BookingId);
 
-            if (settlement == null) throw new Exception("Settlement record not found");
-            if (settlement.IsSettled) throw new Exception("Settlement already completed");
+                if (settlement == null) throw new Exception("Settlement record not found");
+                if (settlement.IsSettled) throw new Exception("Settlement already completed");
 
-            if (settlement.CashCollectedBy == CashCollectedBy.Admin)
-                settlement.TotalPaidToVendor = dto.PaidAmount ?? settlement.PayableToVendor;
-            else
-                settlement.TotalPaidToVendor = settlement.PayableToVendor;
+                if (settlement.CashCollectedBy == CashCollectedBy.Admin)
+                    settlement.TotalPaidToVendor = dto.PaidAmount ?? settlement.PayableToVendor;
+                else
+                    settlement.TotalPaidToVendor = settlement.PayableToVendor;
 
-            settlement.SettledAt = DateTime.UtcNow;
-            _context.ExternalEmployeeCashCollections.Update(settlement);
-            await _context.SaveChangesAsync();
-            await tx.CommitAsync();
+                settlement.SettledAt = DateTime.UtcNow;
+                _context.ExternalEmployeeCashCollections.Update(settlement);
+                await _context.SaveChangesAsync();
+                await tx.CommitAsync();
+            });
         }
 
         private async Task<ExternalEmployee> UpdateExternalEmployee(string name, string number)

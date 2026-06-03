@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="MailKit" Version="4.13.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\TravelManagement_Core\TravelManagement_Core.csproj" />
     <ProjectReference Include="..\TravelManagement_DataAccessLayer\TravelManagement_DataAccessLayer.csproj" />
   </ItemGroup>

@@ -152,9 +152,9 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         {
             bool salaryTypeOnly = string.Equals(type, "Salary", StringComparison.OrdinalIgnoreCase);
 
-            // --- vehicle expenses (Salary category lives in salaries table, not here) ---
             var combined = new List<CombinedExpenseDTO>();
 
+            // --- Vehicle expenses (non-salary) ---
             if (!salaryTypeOnly)
             {
                 var q = _context.vehicleExpences.Include(e => e.Vehicle).AsQueryable();
@@ -163,7 +163,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 if (!string.IsNullOrEmpty(type))
                     q = q.Where(e => e.CategoryType == ParseCategory(type));
                 else
-                    q = q.Where(e => e.CategoryType != Category.Salary); // always exclude Salary from vehicleExpences
+                    q = q.Where(e => e.CategoryType != Category.Salary);
                 if (startDate.HasValue)
                     q = q.Where(e => e.ExpenseDate >= startDate.Value);
                 if (endDate.HasValue)
@@ -189,28 +189,31 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 }));
             }
 
-            // --- salary entries from salaries table (skip when filtering by vehicle or non-salary type) ---
+            // --- Salary entries: ALL auto-created records count as expenses (no IsPaid filter).
+            //     Active drivers' salary records are auto-created; they appear immediately. ---
             bool includeSalaries = !vehicleId.HasValue &&
                 (string.IsNullOrEmpty(type) || salaryTypeOnly);
 
             if (includeSalaries)
             {
-                var salaryQ = _context.salaries.Include(s => s.user).AsQueryable();
+                var salaryQ = _context.salaries
+                    .Include(s => s.user)
+                    .AsQueryable();
+
+                // Filter by the salary's month/year (not PaidDate) since IsPaid is no longer required
                 if (startDate.HasValue)
                     salaryQ = salaryQ.Where(s =>
-                        s.Year > startDate.Value.Year ||
-                        (s.Year == startDate.Value.Year && s.Month >= startDate.Value.Month));
+                        new DateTime(s.Year, s.Month, 1) >= startDate.Value.Date);
                 if (endDate.HasValue)
                     salaryQ = salaryQ.Where(s =>
-                        s.Year < endDate.Value.Year ||
-                        (s.Year == endDate.Value.Year && s.Month <= endDate.Value.Month));
+                        new DateTime(s.Year, s.Month, 1) < endDate.Value.AddDays(1).Date);
 
                 var salaries = await salaryQ.ToListAsync();
                 combined.AddRange(salaries.Select(s => new CombinedExpenseDTO
                 {
                     VehicleExpenceId = null,
                     SalaryId         = s.SalaryId,
-                    ExpenseDate      = new DateTime(s.Year, s.Month, 1),
+                    ExpenseDate      = s.PaidDate ?? new DateTime(s.Year, s.Month, 1),
                     Amount           = s.NetSalaey,
                     CategoryType     = "Salary",
                     VehicleID        = null,
