@@ -61,6 +61,7 @@ namespace TravelManagement.API.Infrastructure
                         CategoryType = Category.EMI,
                         Amount       = vehicle.EMIAmount,
                         ExpenseDate  = today,
+                        OrgId        = vehicle.OrgId,
                         Notes        = $"Auto EMI: {vehicle.VehicleName} ({vehicle.EMILender ?? "lender"}) — instalment {vehicle.PaidEMIs + 1}" +
                                        (vehicle.TotalEMIs > 0 ? $"/{vehicle.TotalEMIs}" : ""),
                     });

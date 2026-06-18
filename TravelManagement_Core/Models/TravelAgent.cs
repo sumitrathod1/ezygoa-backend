@@ -33,5 +33,8 @@ namespace TravelManagement.Core.Models
         public string? IFSC { get; set; }
         public string? Notes { get; set; }
         public bool IsActive { get; set; } = true;
+
+        // Multi-tenancy
+        public int OrgId { get; set; } = 1;
     }
 }

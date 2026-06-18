@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
 using TravelManagement.DataAccessLayer.Repository.Interface;
@@ -8,17 +9,24 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
     public class RateChartRepository : IRateChartRepository
     {
         private readonly AppDbContext _context;
+        private readonly TenantContext _tenant;
 
-        public RateChartRepository(AppDbContext context)
+        public RateChartRepository(AppDbContext context, TenantContext tenant)
         {
             _context = context;
+            _tenant  = tenant;
         }
 
+        private IQueryable<RateChart> OrgRateCharts =>
+            _tenant.ShouldFilter
+                ? _context.RateCharts.Where(r => r.OrgId == _tenant.OrgId)
+                : _context.RateCharts;
+
         public Task<List<RateChart>> GetAllAsync() =>
-            _context.RateCharts.OrderByDescending(r => r.UpdatedAt).ToListAsync();
+            OrgRateCharts.OrderByDescending(r => r.UpdatedAt).ToListAsync();
 
         public Task<RateChart?> GetByIdAsync(string id) =>
-            _context.RateCharts.FirstOrDefaultAsync(r => r.Id == id);
+            OrgRateCharts.FirstOrDefaultAsync(r => r.Id == id);
 
         public async Task<RateChart> CreateAsync(RateChart chart)
         {
@@ -26,6 +34,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 chart.Id = Guid.NewGuid().ToString();
             chart.CreatedAt = DateTime.UtcNow;
             chart.UpdatedAt = DateTime.UtcNow;
+            chart.OrgId     = _tenant.OrgId > 0 ? _tenant.OrgId : 1;
             await _context.RateCharts.AddAsync(chart);
             await _context.SaveChangesAsync();
             return chart;

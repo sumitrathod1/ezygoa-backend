@@ -8,5 +8,8 @@ namespace TravelManagement.Core.Models
         public int externalEmployeeID { get; set; }
         public string? externalEmployeeName { get; set; }
         public string? externalEmployeeNumber { get; set; }
+
+        // Multi-tenancy
+        public int OrgId { get; set; } = 1;
     }
 }

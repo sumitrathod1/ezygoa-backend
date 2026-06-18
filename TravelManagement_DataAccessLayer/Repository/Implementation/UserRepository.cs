@@ -10,15 +10,26 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
     public class UserRepository : IUserRepository
     {
         private readonly AppDbContext _context;
+        private readonly TenantContext _tenant;
 
-        public UserRepository(AppDbContext context)
+        public UserRepository(AppDbContext context, TenantContext tenant)
         {
             _context = context;
+            _tenant  = tenant;
         }
+
+        /// <summary>Base user query scoped to current org (skipped for SuperAdmin / no-tenant).</summary>
+        private IQueryable<User> OrgUsers =>
+            _tenant.ShouldFilter
+                ? _context.Users.Where(u => u.OrgId == _tenant.OrgId)
+                : _context.Users;
 
         public async Task<User?> FindByUsernameAsync(string username)
         {
-            return await _context.Users.FirstOrDefaultAsync(x => x.UserName == username);
+            // Login: match username within org if we have a tenant, else global search
+            return _tenant.ShouldFilter
+                ? await _context.Users.FirstOrDefaultAsync(x => x.UserName == username && x.OrgId == _tenant.OrgId)
+                : await _context.Users.FirstOrDefaultAsync(x => x.UserName == username);
         }
 
         public async Task<User?> GetByIdAsync(int id)
@@ -28,22 +39,23 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<List<User>> GetAllActiveUsersAsync()
         {
-            return await _context.Users.Where(u => u.Status && !u.IsDeleted).ToListAsync();
+            return await OrgUsers.Where(u => u.Status && !u.IsDeleted).ToListAsync();
         }
 
         public async Task<List<User>> GetAllUsersIncludingDeletedAsync()
         {
-            return await _context.Users.ToListAsync();
+            return await OrgUsers.ToListAsync();
         }
 
         public async Task<List<User>> GetAvailableDriversAsync(DateOnly date)
         {
-            var drivers = await _context.Users
+            var drivers = await OrgUsers
                 .Where(u => u.Status && !u.IsDeleted && u.Licence != null)
                 .ToListAsync();
 
             var busyIds = await _context.Bookings
-                .Where(b => b.travelDate == date && b.Status != Status.Canceled)
+                .Where(b => b.travelDate == date && b.Status != Status.Canceled
+                         && (!_tenant.ShouldFilter || b.OrgId == _tenant.OrgId))
                 .Select(b => b.Userid)
                 .Distinct()
                 .ToListAsync();
@@ -91,6 +103,10 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<User> NewUser(User user)
         {
+            // Assign to current tenant org if not explicitly set
+            if (_tenant.ShouldFilter && user.OrgId == 1)
+                user.OrgId = _tenant.OrgId;
+
             user.Status = true;
             user.Password = PasswordHasher.HashPassword(user.Password);
             if (user.EmployeeDOB.HasValue)
@@ -98,7 +114,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
             await _context.AddAsync(user);
             await _context.SaveChangesAsync();
-            await AddSalary(user.Salary, user.userId);
+            await AddSalary(user.Salary, user.userId, user.OrgId);
             return user;
         }
 
@@ -175,7 +191,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             var today = DateOnly.FromDateTime(DateTime.Today);
             var endDate = today.AddDays(20);
 
-            var allEmployees = await _context.Users.ToListAsync();
+            var allEmployees = await OrgUsers.ToListAsync();
             var availability = new Dictionary<int, Dictionary<DateOnly, bool>>();
 
             foreach (var emp in allEmployees)
@@ -186,7 +202,10 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 availability[emp.userId] = days;
             }
 
-            var query = _context.Bookings.AsQueryable();
+            var query = _tenant.ShouldFilter
+                ? _context.Bookings.Where(b => b.OrgId == _tenant.OrgId)
+                : _context.Bookings.AsQueryable();
+
             if (employeeId.HasValue)
                 query = query.Where(b => b.Userid == employeeId.Value);
 
@@ -258,18 +277,19 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             await _context.SaveChangesAsync();
         }
 
-        private async Task<Salary> AddSalary(decimal baseSalary, int userId)
+        private async Task<Salary> AddSalary(decimal baseSalary, int userId, int orgId = 1)
         {
             var now = DateTime.Now;
             var salary = new Salary
             {
-                BaseSalay = baseSalary,
-                Deduction = 0,
+                BaseSalay   = baseSalary,
+                Deduction   = 0,
                 Overtimepay = 0,
-                NetSalaey = baseSalary,
-                Month = now.Month,
-                Year = now.Year,
-                userID = userId
+                NetSalaey   = baseSalary,
+                Month       = now.Month,
+                Year        = now.Year,
+                userID      = userId,
+                OrgId       = orgId,
             };
             await _context.salaries.AddAsync(salary);
             await _context.SaveChangesAsync();

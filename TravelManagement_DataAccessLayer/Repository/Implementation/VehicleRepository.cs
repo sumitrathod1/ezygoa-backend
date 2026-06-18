@@ -10,15 +10,27 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
     public class VehicleRepository : IVehicleRepository
     {
         private readonly AppDbContext _context;
+        private readonly TenantContext _tenant;
 
-        public VehicleRepository(AppDbContext context)
+        public VehicleRepository(AppDbContext context, TenantContext tenant)
         {
             _context = context;
+            _tenant  = tenant;
         }
+
+        private IQueryable<Vehicle> OrgVehicles =>
+            _tenant.ShouldFilter
+                ? _context.Vehicles.Where(v => v.OrgId == _tenant.OrgId)
+                : _context.Vehicles;
+
+        private IQueryable<VehicleExpence> OrgExpenses =>
+            _tenant.ShouldFilter
+                ? _context.vehicleExpences.Where(e => e.OrgId == _tenant.OrgId)
+                : _context.vehicleExpences;
 
         public async Task<List<Vehicle>> GetAllVehiclesAsync()
         {
-            return await _context.Vehicles.ToListAsync();
+            return await OrgVehicles.ToListAsync();
         }
 
         public async Task<Vehicle?> GetVehicleByIdAsync(int id)
@@ -28,19 +40,20 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<bool> VehicleNumberExistsAsync(string vehicleNumber)
         {
-            return await _context.Vehicles.AnyAsync(x => x.VehicleNumber == vehicleNumber);
+            return await OrgVehicles.AnyAsync(x => x.VehicleNumber == vehicleNumber);
         }
 
         public async Task<Vehicle> AddVehcle(Vehicle vehicle)
         {
             var newVehicle = new Vehicle
             {
-                VehicleName = vehicle.VehicleName,
-                VehicleNumber = vehicle.VehicleNumber,
-                VehicleType = vehicle.VehicleType,
+                VehicleName      = vehicle.VehicleName,
+                VehicleNumber    = vehicle.VehicleNumber,
+                VehicleType      = vehicle.VehicleType,
                 RegistrationDate = vehicle.RegistrationDate,
-                Seatingcapacity = vehicle.Seatingcapacity,
-                VehicleAge = Calculations.CalculateAge(vehicle.RegistrationDate, DateTime.Now)
+                Seatingcapacity  = vehicle.Seatingcapacity,
+                VehicleAge       = Calculations.CalculateAge(vehicle.RegistrationDate, DateTime.Now),
+                OrgId            = _tenant.OrgId > 0 ? _tenant.OrgId : 1,
             };
             await _context.AddAsync(newVehicle);
             await _context.SaveChangesAsync();
@@ -92,7 +105,8 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 Amount       = dto.Amount,
                 CategoryType = ParseCategory(dto.CategoryType),
                 VehicleID    = dto.VehicleID,
-                Notes        = dto.Notes
+                Notes        = dto.Notes,
+                OrgId        = _tenant.OrgId > 0 ? _tenant.OrgId : 1,
             };
             await _context.AddAsync(expense);
             await _context.SaveChangesAsync();
@@ -123,7 +137,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<List<VehicleExpence>> GetAllExpensesAsync()
         {
-            return await _context.vehicleExpences
+            return await OrgExpenses
                 .Include(g => g.Vehicle)
                 .OrderByDescending(e => e.ExpenseDate)
                 .ToListAsync();
@@ -132,7 +146,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<List<VehicleExpence>> GetFilteredExpensesAsync(
             int? vehicleId, string? type, DateTime? startDate, DateTime? endDate)
         {
-            var q = _context.vehicleExpences.Include(e => e.Vehicle).AsQueryable();
+            var q = OrgExpenses.Include(e => e.Vehicle).AsQueryable();
             if (vehicleId.HasValue)
                 q = q.Where(e => e.VehicleID != null && e.VehicleID == vehicleId.Value);
             if (!string.IsNullOrEmpty(type))
@@ -157,7 +171,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             // --- Vehicle expenses (non-salary) ---
             if (!salaryTypeOnly)
             {
-                var q = _context.vehicleExpences.Include(e => e.Vehicle).AsQueryable();
+                var q = OrgExpenses.Include(e => e.Vehicle).AsQueryable();
                 if (vehicleId.HasValue)
                     q = q.Where(e => e.VehicleID != null && e.VehicleID == vehicleId.Value);
                 if (!string.IsNullOrEmpty(type))
@@ -196,7 +210,9 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
             if (includeSalaries)
             {
-                var salaryQ = _context.salaries
+                var salaryQ = (_tenant.ShouldFilter
+                    ? _context.salaries.Where(s => s.OrgId == _tenant.OrgId)
+                    : _context.salaries)
                     .Include(s => s.user)
                     .AsQueryable();
 
@@ -229,7 +245,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<object> GetExpenseSummaryAsync(int? vehicleId, DateTime? startDate, DateTime? endDate)
         {
-            var q = _context.vehicleExpences.Include(e => e.Vehicle).AsQueryable();
+            var q = OrgExpenses.Include(e => e.Vehicle).AsQueryable();
             if (vehicleId.HasValue)
                 q = q.Where(e => e.VehicleID == vehicleId.Value);
             if (startDate.HasValue)
@@ -272,7 +288,10 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<List<Documents>> GetAllDocumentsAsync()
         {
-            return await _context.Documents.Include(v => v.Vehicle).ToListAsync();
+            var q = _context.Documents.Include(v => v.Vehicle).AsQueryable();
+            if (_tenant.ShouldFilter)
+                q = q.Where(d => d.OrgId == _tenant.OrgId);
+            return await q.ToListAsync();
         }
 
         public async Task<Documents?> UpdateDocumentAsync(Documents document)
@@ -339,7 +358,10 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<List<VehicleMaintenanceShedule>> GetMaintenanceShedule()
         {
-            return await _context.vehicleMaintenanceShedules.Include(b => b.Vehicle).ToListAsync();
+            var q = _context.vehicleMaintenanceShedules.Include(b => b.Vehicle).AsQueryable();
+            if (_tenant.ShouldFilter)
+                q = q.Where(m => m.Vehicle!.OrgId == _tenant.OrgId);
+            return await q.ToListAsync();
         }
     }
 }

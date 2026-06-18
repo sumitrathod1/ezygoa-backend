@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
 
@@ -13,8 +14,20 @@ namespace TravelManagement.API.Controllers
     public class DashboardController : ApiControllerBase
     {
         private readonly AppDbContext _db;
+        private readonly TenantContext _tenant;
 
-        public DashboardController(AppDbContext db) => _db = db;
+        public DashboardController(AppDbContext db, TenantContext tenant)
+        {
+            _db     = db;
+            _tenant = tenant;
+        }
+
+        // Org-scoped base queries
+        private IQueryable<Booking>       OrgBookings  => _tenant.ShouldFilter ? _db.Bookings.Where(b => b.OrgId == _tenant.OrgId)         : _db.Bookings;
+        private IQueryable<Vehicle>       OrgVehicles  => _tenant.ShouldFilter ? _db.Vehicles.Where(v => v.OrgId == _tenant.OrgId)         : _db.Vehicles;
+        private IQueryable<User>          OrgUsers     => _tenant.ShouldFilter ? _db.Users.Where(u => u.OrgId == _tenant.OrgId)            : _db.Users;
+        private IQueryable<VehicleExpence>OrgExpenses  => _tenant.ShouldFilter ? _db.vehicleExpences.Where(e => e.OrgId == _tenant.OrgId)  : _db.vehicleExpences;
+        private IQueryable<Salary>        OrgSalaries  => _tenant.ShouldFilter ? _db.salaries.Where(s => s.OrgId == _tenant.OrgId)         : _db.salaries;
 
         /// <summary>
         /// Lightweight calendar summary for a given month.
@@ -26,32 +39,26 @@ namespace TravelManagement.API.Controllers
             [FromQuery] int? month,
             [FromQuery] int? year)
         {
-            var today        = DateOnly.FromDateTime(DateTime.Today);
-            var targetMonth  = month ?? today.Month;
-            var targetYear   = year  ?? today.Year;
+            var today       = DateOnly.FromDateTime(DateTime.Today);
+            var targetMonth = month ?? today.Month;
+            var targetYear  = year  ?? today.Year;
 
-            // KPI aggregates — sequential, DbContext is not thread-safe
-            var totalBookings = await _db.Bookings
-                .AsNoTracking()
-                .CountAsync();
+            // KPI aggregates
+            var totalBookings = await OrgBookings.AsNoTracking().CountAsync();
 
-            var todayBookings = await _db.Bookings
-                .AsNoTracking()
+            var todayBookings = await OrgBookings.AsNoTracking()
                 .CountAsync(b => b.travelDate == today && b.Status != Status.Canceled);
 
-            var todayEarning = (await _db.Bookings
-                .AsNoTracking()
+            var todayEarning = (await OrgBookings.AsNoTracking()
                 .Where(b => b.travelDate == today && b.Status != Status.Canceled)
                 .SumAsync(b => (decimal?)b.Amount)) ?? 0;
 
-            var totalRevenue = (await _db.Bookings
-                .AsNoTracking()
+            var totalRevenue = (await OrgBookings.AsNoTracking()
                 .Where(b => b.Status != Status.Canceled)
                 .SumAsync(b => (decimal?)b.Amount)) ?? 0;
 
             // Per-date lightweight data for the requested month
-            var monthRows = await _db.Bookings
-                .AsNoTracking()
+            var monthRows = await OrgBookings.AsNoTracking()
                 .Where(b => b.Status != Status.Canceled
                          && b.travelDate.Month == targetMonth
                          && b.travelDate.Year  == targetYear)
@@ -68,46 +75,36 @@ namespace TravelManagement.API.Controllers
                 {
                     date         = g.Key.ToString("yyyy-MM-dd"),
                     count        = g.Count(),
-                    vehicleNames = g.Select(b => b.VehicleName ?? "External")
-                                    .Distinct()
-                                    .ToList()
+                    vehicleNames = g.Select(b => b.VehicleName ?? "External").Distinct().ToList()
                 })
                 .OrderBy(x => x.date)
                 .ToList();
 
             // Available resources for today
-            var busyVehicleIds = await _db.Bookings
-                .AsNoTracking()
+            var busyVehicleIds = await OrgBookings.AsNoTracking()
                 .Where(b => b.travelDate == today && b.Status != Status.Canceled && b.VehicleId != null)
                 .Select(b => b.VehicleId!.Value)
                 .Distinct()
                 .ToListAsync();
 
-            var busyDriverIds = await _db.Bookings
-                .AsNoTracking()
+            var busyDriverIds = await OrgBookings.AsNoTracking()
                 .Where(b => b.travelDate == today && b.Status != Status.Canceled && b.Userid != null)
                 .Select(b => b.Userid!.Value)
                 .Distinct()
                 .ToListAsync();
 
-            var allVehicles = await _db.Vehicles
-                .AsNoTracking()
+            var allVehicles = await OrgVehicles.AsNoTracking()
                 .Select(v => new { v.VehicleId, v.VehicleName, v.VehicleNumber, v.VehicleType, v.Seatingcapacity })
                 .ToListAsync();
 
-            var availableVehicles = allVehicles
-                .Where(v => !busyVehicleIds.Contains(v.VehicleId))
-                .ToList();
+            var availableVehicles = allVehicles.Where(v => !busyVehicleIds.Contains(v.VehicleId)).ToList();
 
-            var allDrivers = await _db.Users
-                .AsNoTracking()
+            var allDrivers = await OrgUsers.AsNoTracking()
                 .Where(u => u.Status && !u.IsDeleted && u.Licence != null)
                 .Select(u => new { u.userId, u.EmployeeName, u.Number })
                 .ToListAsync();
 
-            var availableDrivers = allDrivers
-                .Where(d => !busyDriverIds.Contains(d.userId))
-                .ToList();
+            var availableDrivers = allDrivers.Where(d => !busyDriverIds.Contains(d.userId)).ToList();
 
             return ApiOk(new
             {
@@ -135,9 +132,8 @@ namespace TravelManagement.API.Controllers
             var m     = month ?? today.Month;
             var y     = year  ?? today.Year;
 
-            // --- Vehicle expenses (Salary lives in salaries table, created auto by AutoSalaryHostedService) ---
-            var vehicleExpList = await _db.vehicleExpences
-                .AsNoTracking()
+            // Vehicle expenses (Salary lives in salaries table)
+            var vehicleExpList = await OrgExpenses.AsNoTracking()
                 .Include(e => e.Vehicle)
                 .Where(e => e.ExpenseDate.Month == m
                          && e.ExpenseDate.Year  == y
@@ -146,19 +142,16 @@ namespace TravelManagement.API.Controllers
 
             var vehicleExpenses = vehicleExpList.Sum(e => e.Amount);
 
-            // --- Salary expenses: ALL auto-created records for this month (no IsPaid filter).
-            //     Active drivers get a salary record auto-created; it counts as an expense immediately. ---
-            var salaryList = await _db.salaries
-                .AsNoTracking()
+            // Salary expenses: ALL auto-created records for this month
+            var salaryList = await OrgSalaries.AsNoTracking()
                 .Include(s => s.user)
                 .Where(s => s.Month == m && s.Year == y)
                 .ToListAsync();
 
             var salaryExpenses = salaryList.Sum(s => s.NetSalaey);
 
-            // --- Revenue ---
-            var revenue = (await _db.Bookings
-                .AsNoTracking()
+            // Revenue
+            var revenue = (await OrgBookings.AsNoTracking()
                 .Where(b => b.Status         != Status.Canceled
                          && b.travelDate.Month == m
                          && b.travelDate.Year  == y)
@@ -166,21 +159,15 @@ namespace TravelManagement.API.Controllers
 
             var totalExpenses = vehicleExpenses + salaryExpenses;
 
-            // --- By-category breakdown (vehicle expenses only) ---
+            // By-category breakdown
             var byCategory = vehicleExpList
                 .GroupBy(e => e.CategoryType.ToString())
                 .Select(g => new { category = g.Key, amount = g.Sum(e => e.Amount), count = g.Count() })
                 .OrderByDescending(g => g.amount)
                 .ToList<object>();
 
-            // --- Salary details per driver (all records for this month, for reference in the UI) ---
-            var allMonthSalaries = await _db.salaries
-                .AsNoTracking()
-                .Include(s => s.user)
-                .Where(s => s.Month == m && s.Year == y)
-                .ToListAsync();
-
-            var salaryDetails = allMonthSalaries
+            // Salary details per driver
+            var salaryDetails = salaryList
                 .Select(s => new
                 {
                     salaryId   = s.SalaryId,
@@ -194,7 +181,7 @@ namespace TravelManagement.API.Controllers
                 .OrderBy(s => s.driverName)
                 .ToList<object>();
 
-            // --- Vehicle-wise breakdown ---
+            // Vehicle-wise breakdown
             var vehicleBreakdown = vehicleExpList
                 .Where(e => e.VehicleID.HasValue)
                 .GroupBy(e => new
@@ -222,14 +209,13 @@ namespace TravelManagement.API.Controllers
                 .OrderByDescending(v => v.total)
                 .ToList<object>();
 
-            // --- Monthly trend: current month + 5 previous months ---
-            var trendStart    = new DateTime(y, m, 1).AddMonths(-5);
-            var trendEnd      = new DateTime(y, m, DateTime.DaysInMonth(y, m), 23, 59, 59);
+            // Monthly trend: current month + 5 previous months
+            var trendStart     = new DateTime(y, m, 1).AddMonths(-5);
+            var trendEnd       = new DateTime(y, m, DateTime.DaysInMonth(y, m), 23, 59, 59);
             var trendStartDate = DateOnly.FromDateTime(trendStart);
             var trendEndDate   = DateOnly.FromDateTime(trendEnd);
 
-            var trendBookings = await _db.Bookings
-                .AsNoTracking()
+            var trendBookings = await OrgBookings.AsNoTracking()
                 .Where(b => b.Status != Status.Canceled
                          && b.travelDate >= trendStartDate
                          && b.travelDate <= trendEndDate)
@@ -240,8 +226,7 @@ namespace TravelManagement.API.Controllers
             int trendStartYM = trendStart.Year * 100 + trendStart.Month;
             int currentYM    = y * 100 + m;
 
-            var trendVehExp = await _db.vehicleExpences
-                .AsNoTracking()
+            var trendVehExp = await OrgExpenses.AsNoTracking()
                 .Where(e => e.ExpenseDate >= trendStart
                          && e.ExpenseDate <= trendEnd
                          && e.CategoryType != Category.Salary)
@@ -249,9 +234,7 @@ namespace TravelManagement.API.Controllers
                 .Select(g => new { g.Key.Year, g.Key.Month, amount = g.Sum(e => (decimal?)e.Amount) ?? 0m })
                 .ToListAsync();
 
-            // Salary trend: ALL auto-created records count as expenses (no IsPaid filter)
-            var trendSalaries = await _db.salaries
-                .AsNoTracking()
+            var trendSalaries = await OrgSalaries.AsNoTracking()
                 .Where(s => s.Year * 100 + s.Month >= trendStartYM
                          && s.Year * 100 + s.Month <= currentYM)
                 .GroupBy(s => new { s.Year, s.Month })
@@ -261,8 +244,8 @@ namespace TravelManagement.API.Controllers
             var monthlyTrend = Enumerable.Range(0, 6).Select(i =>
             {
                 var d  = new DateTime(y, m, 1).AddMonths(-5 + i);
-                var bk = trendBookings.FirstOrDefault(x => x.Year == d.Year && x.Month == d.Month);
-                var ex = trendVehExp.FirstOrDefault(x => x.Year  == d.Year && x.Month == d.Month);
+                var bk = trendBookings.FirstOrDefault(x => x.Year  == d.Year && x.Month == d.Month);
+                var ex = trendVehExp.FirstOrDefault(x  => x.Year  == d.Year && x.Month == d.Month);
                 var sl = trendSalaries.FirstOrDefault(x => x.Year == d.Year && x.Month == d.Month);
                 return new
                 {

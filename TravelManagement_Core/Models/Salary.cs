@@ -17,5 +17,8 @@ namespace TravelManagement.Core.Models
         public bool IsPaid { get; set; } = false;
         public DateTime? PaidDate { get; set; }
         public string? Notes { get; set; }
+
+        // Multi-tenancy
+        public int OrgId { get; set; } = 1;
     }
 }

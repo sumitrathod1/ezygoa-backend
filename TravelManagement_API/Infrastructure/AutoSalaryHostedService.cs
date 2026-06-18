@@ -64,6 +64,7 @@ namespace TravelManagement.API.Infrastructure
                             Deduction   = 0,
                             NetSalaey   = driver.Salary,
                             IsPaid      = false,
+                            OrgId       = driver.OrgId,
                             Notes       = $"Auto: {driver.EmployeeName} salary for {today:MMMM yyyy}",
                         });
                         // The salary record itself counts as an expense immediately.

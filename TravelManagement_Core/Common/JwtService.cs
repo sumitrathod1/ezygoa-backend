@@ -21,8 +21,9 @@ namespace TravelManagement.Core.Common
             var claims = new[]
             {
                 new Claim(ClaimTypes.NameIdentifier, user.userId.ToString()),
-                new Claim(ClaimTypes.Name, user.UserName),
-                new Claim(ClaimTypes.Role, user.Role.ToString())
+                new Claim(ClaimTypes.Name,           user.UserName),
+                new Claim(ClaimTypes.Role,           user.Role.ToString()),
+                new Claim("orgId",                   user.OrgId.ToString()),
             };
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["JwtSettings:Key"]!));

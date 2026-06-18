@@ -13,6 +13,7 @@ using TravelManagement.API.Hubs;
 using TravelManagement.API.Infrastructure;
 using TravelManagement.BusinessLogicLayer.Services.Implementation;
 using TravelManagement.BusinessLogicLayer.Services.Interface;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
 using TravelManagement.DataAccessLayer.Repository.Implementation;
@@ -178,6 +179,10 @@ builder.Services.AddScoped<IRateChartService, RateChartService>();
 builder.Services.AddScoped<ISalaryRepository, SalaryRepository>();
 builder.Services.AddScoped<ISalaryService, SalaryService>();
 
+// Multi-tenancy
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<TenantContext>();
+
 // Infrastructure (API layer)
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<EmailBookingBackgroundService>();
@@ -191,8 +196,7 @@ var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider
-        .GetRequiredService<AppDbContext>();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
         db.Database.Migrate();
@@ -201,6 +205,38 @@ using (var scope = app.Services.CreateScope())
     catch (Exception ex)
     {
         Console.WriteLine($"Migration error: {ex.Message}");
+    }
+
+    // ── Seed default Organisation (OrgId = 1) ───────────────────────────
+    if (!db.Organizations.Any())
+    {
+        db.Organizations.Add(new Organization
+        {
+            Name      = "EzyGoa",
+            Code      = "EZYGOA",
+            IsActive  = true,
+            CreatedAt = DateTime.UtcNow,
+        });
+        db.SaveChanges();
+        Console.WriteLine("Default organisation 'EzyGoa' created (OrgId=1)");
+    }
+
+    // ── Seed SuperAdmin (OrgId = 0) ─────────────────────────────────────
+    if (!db.Users.Any(u => u.Role == Role.SuperAdmin))
+    {
+        var superPwd = builder.Configuration["SuperAdmin:Password"] ?? "SuperAdmin@123";
+        db.Users.Add(new User
+        {
+            EmployeeName = "Super Admin",
+            UserName     = "superadmin",
+            Password     = PasswordHasher.HashPassword(superPwd),
+            Role         = Role.SuperAdmin,
+            OrgId        = 0,          // not tied to any org
+            Status       = true,
+            Number       = "0000000000",
+        });
+        db.SaveChanges();
+        Console.WriteLine("SuperAdmin created. Use the Change Password option after first login.");
     }
 }
 

@@ -11,8 +11,9 @@ namespace TravelManagement.Core.Models
 
     public enum Role
     {
-        Employee,
-        Admin
+        Employee   = 0,
+        Admin      = 1,
+        SuperAdmin = 2,
     }
 
     public class User
@@ -52,5 +53,8 @@ namespace TravelManagement.Core.Models
 
         // Auto salary tracking
         public DateTime? LastAutoSalaryDate { get; set; }
+
+        // Multi-tenancy: 0 = SuperAdmin system account, 1+ = tenant org
+        public int OrgId { get; set; } = 1;
     }
 }

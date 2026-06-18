@@ -21,5 +21,8 @@ namespace TravelManagement.Core.Models
         public DateTime? IssueDate { get; set; }
         public string? DriverName { get; set; }     // For Driver category docs
         public string? FileUrl { get; set; }
+
+        // Multi-tenancy
+        public int OrgId { get; set; } = 1;
     }
 }

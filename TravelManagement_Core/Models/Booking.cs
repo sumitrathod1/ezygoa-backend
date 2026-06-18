@@ -54,5 +54,12 @@ namespace TravelManagement.Core.Models
         public TravelAgent? TravelAgent { get; set; }
         public ICollection<Payment>? Payments { get; set; }
         public bool isValidAssignment => (Userid != null) ^ (ExternalEmployeeId != null);
+
+        // Multi-tenancy
+        public int OrgId { get; set; } = 1;
+
+        // Audit: who created this booking
+        public int? CreatedByUserId { get; set; }
+        public User? CreatedBy      { get; set; }
     }
 }

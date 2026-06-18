@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using TravelManagement.API.Hubs;
 using TravelManagement.BusinessLogicLayer.Services.Interface;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.DTOs;
 using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
@@ -19,15 +20,18 @@ namespace TravelManagement.API.Controllers
         private readonly IBookingService _bookingService;
         private readonly IHubContext<BookingHub> _hubContext;
         private readonly AppDbContext _db;
+        private readonly TenantContext _tenant;
 
         public BookingController(
             IBookingService bookingService,
             IHubContext<BookingHub> hubContext,
-            AppDbContext db)
+            AppDbContext db,
+            TenantContext tenant)
         {
             _bookingService = bookingService;
             _hubContext     = hubContext;
             _db             = db;
+            _tenant         = tenant;
         }
 
         /// <summary>
@@ -37,15 +41,18 @@ namespace TravelManagement.API.Controllers
         [HttpGet("by-date/{date}")]
         public async Task<IActionResult> GetBookingsByDate(DateOnly date)
         {
-            var bookings = await _db.Bookings
-                .AsNoTracking()
+            var bookingQuery = _db.Bookings.AsNoTracking()
                 .Include(b => b.user)
+                .Include(b => b.CreatedBy)
                 .Include(b => b.Customer)
                 .Include(b => b.Vehicle)
                 .Include(b => b.ExternalEmployee)
-                .Where(b => b.travelDate == date && b.Status != Status.Canceled)
-                .OrderBy(b => b.Traveltime)
-                .ToListAsync();
+                .Where(b => b.travelDate == date && b.Status != Status.Canceled);
+
+            if (_tenant.ShouldFilter)
+                bookingQuery = bookingQuery.Where(b => b.OrgId == _tenant.OrgId);
+
+            var bookings = await bookingQuery.OrderBy(b => b.Traveltime).ToListAsync();
 
             if (!bookings.Any())
                 return ApiOk(Array.Empty<object>());
@@ -75,6 +82,8 @@ namespace TravelManagement.API.Controllers
                 b.CustomerID, b.Customer,
                 b.ExternalEmployeeId, b.ExternalEmployee,
                 b.Payment, b.TravelAgentId, b.TravelAgent,
+                b.CreatedByUserId,
+                CreatedByName = b.CreatedBy != null ? b.CreatedBy.EmployeeName : null,
                 AdvancePaid = payDict.GetValueOrDefault(b.BookingId, 0),
                 Balance     = b.Amount - payDict.GetValueOrDefault(b.BookingId, 0)
             });

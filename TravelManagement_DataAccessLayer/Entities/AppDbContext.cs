@@ -25,6 +25,10 @@ namespace TravelManagement.DataAccessLayer.Entities
         public DbSet<ExternalEmployeeCashCollection> ExternalEmployeeCashCollections { get; set; }
         public DbSet<RateChart> RateCharts { get; set; }
         public DbSet<AgentCashCollection> AgentCashCollections { get; set; }
+        public DbSet<Organization> Organizations { get; set; }
+        public DbSet<FollowUp> FollowUps { get; set; }
+        public DbSet<Review> Reviews { get; set; }
+        public DbSet<MarketingCampaign> MarketingCampaigns { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -48,9 +52,26 @@ namespace TravelManagement.DataAccessLayer.Entities
             modelBuilder.Entity<TravelAgent>().Property(t => t.CommissionPercent).HasPrecision(18, 2);
             modelBuilder.Entity<Vehicle>().Property(v => v.EMIAmount).HasPrecision(18, 2);
             modelBuilder.Entity<AgentCashCollection>().Property(a => a.AmountCollected).HasPrecision(18, 2);
+            modelBuilder.Entity<EmailInquiry>().Property(e => e.QuotedAmount).HasPrecision(18, 2);
+            modelBuilder.Entity<MarketingCampaign>().Property(m => m.Budget).HasPrecision(18, 2);
+            modelBuilder.Entity<MarketingCampaign>().Property(m => m.Spent).HasPrecision(18, 2);
+
+            // Booking → User: two FK relationships to the same table — must be explicit
+            modelBuilder.Entity<Booking>()
+                .HasOne(b => b.user)
+                .WithMany()
+                .HasForeignKey(b => b.Userid)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<Booking>()
+                .HasOne(b => b.CreatedBy)
+                .WithMany()
+                .HasForeignKey(b => b.CreatedByUserId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             // Unique indexes
-            modelBuilder.Entity<User>().HasIndex(u => u.UserName).IsUnique();
+            // UserName must be unique WITHIN an org (multi-tenancy)
+            modelBuilder.Entity<User>().HasIndex(u => new { u.UserName, u.OrgId }).IsUnique();
 
             // Performance indexes
             modelBuilder.Entity<Booking>().HasIndex(b => b.travelDate);

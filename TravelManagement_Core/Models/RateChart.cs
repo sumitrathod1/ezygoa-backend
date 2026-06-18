@@ -30,5 +30,8 @@ namespace TravelManagement.Core.Models
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        // Multi-tenancy
+        public int OrgId { get; set; } = 1;
     }
 }

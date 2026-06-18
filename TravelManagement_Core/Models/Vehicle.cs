@@ -33,5 +33,8 @@ namespace TravelManagement.Core.Models
         public string? EMILender { get; set; }
         public int TotalEMIs { get; set; } = 0;
         public int PaidEMIs { get; set; } = 0;
+
+        // Multi-tenancy
+        public int OrgId { get; set; } = 1;
     }
 }

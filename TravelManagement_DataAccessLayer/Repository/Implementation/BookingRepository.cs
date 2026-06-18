@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.DTOs;
 using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
@@ -9,11 +10,18 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
     public class BookingRepository : IBookingRepository
     {
         private readonly AppDbContext _context;
+        private readonly TenantContext _tenant;
 
-        public BookingRepository(AppDbContext context)
+        public BookingRepository(AppDbContext context, TenantContext tenant)
         {
             _context = context;
+            _tenant  = tenant;
         }
+
+        private IQueryable<Booking> OrgBookings =>
+            _tenant.ShouldFilter
+                ? _context.Bookings.Where(b => b.OrgId == _tenant.OrgId)
+                : _context.Bookings;
 
         public async Task<Booking?> GetByIdAsync(int id)
         {
@@ -22,14 +30,17 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<List<ExternalEmployee>> GetExternalEmployeesAsync()
         {
-            return await _context.ExternalEmployees.ToListAsync();
+            return _tenant.ShouldFilter
+                ? await _context.ExternalEmployees.Where(e => e.OrgId == _tenant.OrgId).ToListAsync()
+                : await _context.ExternalEmployees.ToListAsync();
         }
 
         public async Task<object> GetAllBookingsWithStatsAsync()
         {
-            var bookings = await _context.Bookings
+            var bookings = await OrgBookings
                 .AsNoTracking()
                 .Include(b => b.user)
+                .Include(b => b.CreatedBy)
                 .Include(b => b.Customer)
                 .Include(b => b.Vehicle)
                 .Where(b => b.Status != Status.Canceled)
@@ -58,6 +69,8 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                     b.Pax, b.Assigned, b.CustomerID, b.Customer, b.ExternalEmployeeId,
                     b.ExternalEmployee, b.Payment, b.TravelAgentId, b.TravelAgent,
                     b.Payments, b.isValidAssignment,
+                    b.CreatedByUserId,
+                    CreatedByName = b.CreatedBy != null ? b.CreatedBy.EmployeeName : null,
                     AdvancePaid = pay?.TotalPaid ?? 0,
                     TotalAllocated = pay?.TotalAllocated ?? 0,
                     Balance = b.Amount - (pay?.TotalPaid ?? 0)
@@ -181,19 +194,21 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
                     var booking = new Booking
                     {
-                        From = dayBooking.From,
-                        To = dayBooking.To,
-                        VehicleId = nullVehicleId,
-                        CustomerID = customer!.CustomersId,
-                        Userid = nullUserId,
-                        Traveltime = dayBooking.TravelTime,
-                        BookingType = dayBType,
-                        travelDate = dayBooking.TravelDate,
-                        Status = Status.Pending,
-                        Pax = dto.Pax,
-                        Amount = dayBooking.Amount,
-                        Payment = paymentSource,
-                        TravelAgentId = agent?.AgentId
+                        From          = dayBooking.From,
+                        To            = dayBooking.To,
+                        VehicleId     = nullVehicleId,
+                        CustomerID    = customer!.CustomersId,
+                        Userid        = nullUserId,
+                        Traveltime    = dayBooking.TravelTime,
+                        BookingType   = dayBType,
+                        travelDate    = dayBooking.TravelDate,
+                        Status        = Status.Pending,
+                        Pax           = dto.Pax,
+                        Amount        = dayBooking.Amount,
+                        Payment       = paymentSource,
+                        TravelAgentId = agent?.AgentId,
+                        OrgId         = _tenant.OrgId > 0 ? _tenant.OrgId : 1,
+                        CreatedByUserId = _tenant.UserId > 0 ? _tenant.UserId : null,
                     };
                     await _context.Bookings.AddAsync(booking);
                     createdBookings.Add(booking);
@@ -242,19 +257,22 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 var newBooking = new Booking
                 {
                     From = dto.From,
-                    To = dto.To,
-                    VehicleId = nullVehicleId,
-                    CustomerID = customer!.CustomersId,
-                    Userid = nullUserId,
-                    Traveltime = dto.BookingTime,
-                    BookingType = bookingType,
-                    travelDate = dto.BookingDate,
-                    Status = bookingStatus,
-                    Pax = dto.Pax,
+                    To   = dto.To,
+                    VehicleId          = nullVehicleId,
+                    CustomerID         = customer!.CustomersId,
+                    Userid             = nullUserId,
+                    Traveltime         = dto.BookingTime,
+                    BookingType        = bookingType,
+                    travelDate         = dto.BookingDate,
+                    Status             = bookingStatus,
+                    Pax                = dto.Pax,
                     ExternalEmployeeId = isExternalBooking ? externalEmp?.externalEmployeeID : null,
-                    Amount = (decimal)dto.Amount,
-                    Payment = paymentSource,
-                    TravelAgentId = agent?.AgentId
+                    Amount             = (decimal)dto.Amount,
+                    Payment            = paymentSource,
+                    TravelAgentId      = agent?.AgentId,
+                    // Multi-tenancy: stamp org and creator
+                    OrgId              = _tenant.OrgId > 0 ? _tenant.OrgId : 1,
+                    CreatedByUserId    = _tenant.UserId > 0 ? _tenant.UserId : null,
                 };
 
                 await _context.Bookings.AddAsync(newBooking);
@@ -330,10 +348,11 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<object> FilterBookingsAsync(BookingFilterDTO filterDTO)
         {
-            var query = _context.Bookings
+            var query = OrgBookings
                 .Include(b => b.Customer)
                 .Include(b => b.Vehicle)
                 .Include(b => b.user)
+                .Include(b => b.CreatedBy)
                 .Include(b => b.ExternalEmployee)
                 .Include(b => b.TravelAgent)
                 .AsQueryable();
@@ -369,7 +388,9 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                     CustomerNumber = b.Customer?.CustomerNumber,
                     UserName = b.user?.UserName,
                     UserId = b.user?.userId,
-                    b.Payment
+                    b.Payment,
+                    b.CreatedByUserId,
+                    CreatedByName = b.CreatedBy != null ? b.CreatedBy.EmployeeName : null
                 }),
                 Pagination = new
                 {
@@ -495,7 +516,12 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 return vendor;
             }
 
-            vendor = new ExternalEmployee { externalEmployeeName = name, externalEmployeeNumber = number };
+            vendor = new ExternalEmployee
+            {
+                externalEmployeeName   = name,
+                externalEmployeeNumber = number,
+                OrgId = _tenant.OrgId > 0 ? _tenant.OrgId : 1,
+            };
             await _context.ExternalEmployees.AddAsync(vendor);
             await _context.SaveChangesAsync();
             return vendor;
@@ -508,10 +534,11 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             {
                 await _context.Customers.AddAsync(new Customers
                 {
-                    CustomerName = dto.CustomerName ?? string.Empty,
-                    CustomerNumber = dto.CustomerNumber,
+                    CustomerName    = dto.CustomerName ?? string.Empty,
+                    CustomerNumber  = dto.CustomerNumber,
                     AlternateNumber = dto.AlternateNumber,
-                    TravelDate = dto.BookingDate
+                    TravelDate      = dto.BookingDate,
+                    OrgId           = _tenant.OrgId > 0 ? _tenant.OrgId : 1,
                 });
             }
             else
