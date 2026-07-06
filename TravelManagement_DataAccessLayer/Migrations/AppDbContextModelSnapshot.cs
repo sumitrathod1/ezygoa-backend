@@ -89,6 +89,9 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.PrimitiveCollection<int[]>("Payments")
                         .HasColumnType("integer[]");
 
+                    b.Property<DateOnly?>("ReturnDate")
+                        .HasColumnType("date");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -262,6 +265,9 @@ namespace TravelManagement_DataAccessLayer.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("ConvertedBookingId")
+                        .HasColumnType("integer");
+
                     b.Property<DateOnly?>("CreatedAt")
                         .HasColumnType("date");
 
@@ -281,8 +287,24 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.Property<bool>("IsRejected")
                         .HasColumnType("boolean");
 
+                    b.Property<int?>("LeadStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("LostReason")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("NextFollowUpAt")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<int>("Pax")
                         .HasColumnType("integer");
+
+                    b.Property<decimal?>("QuotedAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Source")
+                        .HasColumnType("text");
 
                     b.Property<string>("To")
                         .HasColumnType("text");
@@ -294,6 +316,8 @@ namespace TravelManagement_DataAccessLayer.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ConvertedBookingId");
 
                     b.ToTable("EmailInquiries");
                 });
@@ -362,6 +386,99 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.HasIndex("ExternalEmployeeId");
 
                     b.ToTable("ExternalEmployeeCashCollections");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.FollowUp", b =>
+                {
+                    b.Property<int>("FollowUpId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("FollowUpId"));
+
+                    b.Property<int?>("BookingId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("EmailInquiryId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("FollowUpDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime?>("NextFollowUpAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Note")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("OrgId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("FollowUpId");
+
+                    b.HasIndex("BookingId");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("EmailInquiryId");
+
+                    b.ToTable("FollowUps");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.MarketingCampaign", b =>
+                {
+                    b.Property<int>("CampaignId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("CampaignId"));
+
+                    b.Property<int>("BookingsConverted")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("Budget")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Channel")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<int>("LeadsGenerated")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<int>("OrgId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("Spent")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("CampaignId");
+
+                    b.ToTable("MarketingCampaigns");
                 });
 
             modelBuilder.Entity("TravelManagement.Core.Models.Notification", b =>
@@ -504,6 +621,386 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.ToTable("Payments");
                 });
 
+            modelBuilder.Entity("TravelManagement.Core.Models.Place", b =>
+                {
+                    b.Property<int>("PlaceId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("PlaceId"));
+
+                    b.Property<string>("Aliases")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("DropAllowed")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("OrgId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("PickupAllowed")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("RestrictionMessage")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Zone")
+                        .HasColumnType("integer");
+
+                    b.HasKey("PlaceId");
+
+                    b.ToTable("Places");
+
+                    b.HasData(
+                        new
+                        {
+                            PlaceId = 1,
+                            Aliases = "Vagator Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Vagator",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 2,
+                            Aliases = "Chapora Fort",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Chapora",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 3,
+                            Aliases = "Anjuna Beach,Anjuna Flea Market",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Anjuna",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 4,
+                            Aliases = "Baga Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Baga",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 5,
+                            Aliases = "Calangute Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Calangute",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 6,
+                            Aliases = "Candolim Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Candolim",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 7,
+                            Aliases = "Sinquerim Beach,Aguada",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Sinquerim",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 8,
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Arpora",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 9,
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Saligao",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 10,
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Parra",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 11,
+                            Aliases = "Mapusa Market",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Mapusa",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 12,
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Guirim",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 13,
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Porvorim",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 14,
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Nerul",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 15,
+                            Aliases = "Panaji,Panaji City,Panjim City,Goa Capital",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Panjim",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 16,
+                            Aliases = "Miramar Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Miramar",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 17,
+                            Aliases = "Dona Paula Beach,Dona Paula Jetty",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Dona Paula",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 18,
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Taleigao",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 19,
+                            Aliases = "Bambolim Beach,Goa University",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Bambolim",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 0
+                        },
+                        new
+                        {
+                            PlaceId = 20,
+                            Aliases = "GOX,Mopa,Manohar International Airport,North Goa Airport",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Mopa Airport",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 2
+                        },
+                        new
+                        {
+                            PlaceId = 21,
+                            Aliases = "GOI,Dabolim,Goa International Airport,Vasco Airport",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Dabolim Airport",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 2
+                        },
+                        new
+                        {
+                            PlaceId = 22,
+                            Aliases = "Thivim Station,Thivim Railway Station",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Thivim Railway",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 2
+                        },
+                        new
+                        {
+                            PlaceId = 23,
+                            Aliases = "Karmali Station,Old Goa Station,Karmali",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Karmali Railway",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 2
+                        },
+                        new
+                        {
+                            PlaceId = 24,
+                            Aliases = "Margao Railway,Margao Station,Madgaon Station,Margao",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Madgaon Railway",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 2
+                        },
+                        new
+                        {
+                            PlaceId = 25,
+                            Aliases = "Vasco da Gama Railway,Vasco Station,Vasco",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Vasco Railway",
+                            OrgId = 1,
+                            PickupAllowed = true,
+                            Zone = 2
+                        },
+                        new
+                        {
+                            PlaceId = 26,
+                            Aliases = "Colva Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Colva",
+                            OrgId = 1,
+                            PickupAllowed = false,
+                            RestrictionMessage = "We can drop you here but pickup from this area is outside our zone. Nearest pickup points: Madgaon Railway Station or Dabolim Airport.",
+                            Zone = 1
+                        },
+                        new
+                        {
+                            PlaceId = 27,
+                            Aliases = "Majorda Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Majorda",
+                            OrgId = 1,
+                            PickupAllowed = false,
+                            RestrictionMessage = "We can drop you here but pickup from this area is outside our zone. Nearest pickup points: Madgaon Railway Station or Dabolim Airport.",
+                            Zone = 1
+                        },
+                        new
+                        {
+                            PlaceId = 28,
+                            Aliases = "Benaulim Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Benaulim",
+                            OrgId = 1,
+                            PickupAllowed = false,
+                            RestrictionMessage = "We can drop you here but pickup from this area is outside our zone. Nearest pickup points: Madgaon Railway Station or Dabolim Airport.",
+                            Zone = 1
+                        },
+                        new
+                        {
+                            PlaceId = 29,
+                            Aliases = "Varca Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Varca",
+                            OrgId = 1,
+                            PickupAllowed = false,
+                            RestrictionMessage = "We can drop you here but pickup from this area is outside our zone. Nearest pickup points: Madgaon Railway Station or Dabolim Airport.",
+                            Zone = 1
+                        },
+                        new
+                        {
+                            PlaceId = 30,
+                            Aliases = "Palolem Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Palolem",
+                            OrgId = 1,
+                            PickupAllowed = false,
+                            RestrictionMessage = "We can drop you here but pickup from this area is outside our zone. Nearest pickup points: Madgaon Railway Station or Dabolim Airport.",
+                            Zone = 1
+                        },
+                        new
+                        {
+                            PlaceId = 31,
+                            Aliases = "Agonda Beach",
+                            DropAllowed = true,
+                            IsActive = true,
+                            Name = "Agonda",
+                            OrgId = 1,
+                            PickupAllowed = false,
+                            RestrictionMessage = "We can drop you here but pickup from this area is outside our zone. Nearest pickup points: Madgaon Railway Station or Dabolim Airport.",
+                            Zone = 1
+                        });
+                });
+
             modelBuilder.Entity("TravelManagement.Core.Models.RateChart", b =>
                 {
                     b.Property<string>("Id")
@@ -580,6 +1077,142 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("RateCharts");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.RentalRate", b =>
+                {
+                    b.Property<int>("RentalRateId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("RentalRateId"));
+
+                    b.Property<decimal?>("ExtraKmRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int?>("KmPerDay")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MinDays")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("OrgId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("PricePerDay")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("SecurityDeposit")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("VehicleId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("WeeklyRate")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("RentalRateId");
+
+                    b.HasIndex("VehicleId", "OrgId")
+                        .IsUnique();
+
+                    b.ToTable("RentalRates");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.Review", b =>
+                {
+                    b.Property<int>("ReviewId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("ReviewId"));
+
+                    b.Property<int?>("BookingId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Comment")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CustomerName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CustomerNumber")
+                        .HasColumnType("text");
+
+                    b.Property<int>("OrgId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Rating")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Source")
+                        .HasColumnType("text");
+
+                    b.Property<DateOnly?>("TravelDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("ReviewId");
+
+                    b.HasIndex("BookingId");
+
+                    b.ToTable("Reviews");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.RouteRate", b =>
+                {
+                    b.Property<int>("RouteRateId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("RouteRateId"));
+
+                    b.Property<decimal?>("FloorPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("FromPlaceId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("OrgId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("PeakPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("ToPlaceId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("VehicleType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("RouteRateId");
+
+                    b.HasIndex("ToPlaceId");
+
+                    b.HasIndex("FromPlaceId", "ToPlaceId", "VehicleType", "OrgId")
+                        .IsUnique();
+
+                    b.ToTable("RouteRates");
                 });
 
             modelBuilder.Entity("TravelManagement.Core.Models.Salary", b =>
@@ -932,7 +1565,8 @@ namespace TravelManagement_DataAccessLayer.Migrations
                 {
                     b.HasOne("TravelManagement.Core.Models.User", "CreatedBy")
                         .WithMany()
-                        .HasForeignKey("CreatedByUserId");
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("TravelManagement.Core.Models.Customers", "Customer")
                         .WithMany()
@@ -950,7 +1584,8 @@ namespace TravelManagement_DataAccessLayer.Migrations
 
                     b.HasOne("TravelManagement.Core.Models.User", "user")
                         .WithMany()
-                        .HasForeignKey("Userid");
+                        .HasForeignKey("Userid")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("TravelManagement.Core.Models.Vehicle", "Vehicle")
                         .WithMany()
@@ -1001,6 +1636,15 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.Navigation("Vehicle");
                 });
 
+            modelBuilder.Entity("TravelManagement.Core.Models.EmailInquiry", b =>
+                {
+                    b.HasOne("TravelManagement.Core.Models.Booking", "ConvertedBooking")
+                        .WithMany()
+                        .HasForeignKey("ConvertedBookingId");
+
+                    b.Navigation("ConvertedBooking");
+                });
+
             modelBuilder.Entity("TravelManagement.Core.Models.ExternalEmployeeCashCollection", b =>
                 {
                     b.HasOne("TravelManagement.Core.Models.Booking", "Booking")
@@ -1016,6 +1660,27 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.Navigation("Booking");
 
                     b.Navigation("ExternalEmployee");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.FollowUp", b =>
+                {
+                    b.HasOne("TravelManagement.Core.Models.Booking", "Booking")
+                        .WithMany()
+                        .HasForeignKey("BookingId");
+
+                    b.HasOne("TravelManagement.Core.Models.User", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId");
+
+                    b.HasOne("TravelManagement.Core.Models.EmailInquiry", "EmailInquiry")
+                        .WithMany()
+                        .HasForeignKey("EmailInquiryId");
+
+                    b.Navigation("Booking");
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("EmailInquiry");
                 });
 
             modelBuilder.Entity("TravelManagement.Core.Models.OvertimeLog", b =>
@@ -1058,6 +1723,45 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.Navigation("Customer");
 
                     b.Navigation("TravelAgent");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.RentalRate", b =>
+                {
+                    b.HasOne("TravelManagement.Core.Models.Vehicle", "Vehicle")
+                        .WithMany()
+                        .HasForeignKey("VehicleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Vehicle");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.Review", b =>
+                {
+                    b.HasOne("TravelManagement.Core.Models.Booking", "Booking")
+                        .WithMany()
+                        .HasForeignKey("BookingId");
+
+                    b.Navigation("Booking");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.RouteRate", b =>
+                {
+                    b.HasOne("TravelManagement.Core.Models.Place", "FromPlace")
+                        .WithMany()
+                        .HasForeignKey("FromPlaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("TravelManagement.Core.Models.Place", "ToPlace")
+                        .WithMany()
+                        .HasForeignKey("ToPlaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("FromPlace");
+
+                    b.Navigation("ToPlace");
                 });
 
             modelBuilder.Entity("TravelManagement.Core.Models.Salary", b =>

@@ -25,5 +25,8 @@ namespace TravelManagement.Core.DTOs
         public decimal? CustomerWillPay { get; set; }
         public decimal? OwnerWillPay { get; set; }
         public decimal? AdvancePay { get; set; }
+
+        // Only populated when BookingType == SelfDriveRental
+        public DateOnly? ReturnDate { get; set; }
     }
 }

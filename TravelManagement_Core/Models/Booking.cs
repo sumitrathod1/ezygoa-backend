@@ -5,13 +5,14 @@ namespace TravelManagement.Core.Models
 {
     public enum BookingType
     {
-        FullDay,
-        SightSeeing,
-        Shuttle,
-        AirportDrop,
-        RailwayStation,
-        Notspecified,
-        AirportPickup
+        FullDay,          // 0
+        SightSeeing,      // 1
+        Shuttle,          // 2
+        AirportDrop,      // 3
+        RailwayStation,   // 4
+        Notspecified,     // 5
+        AirportPickup,    // 6
+        SelfDriveRental,  // 7 — do NOT insert above this; existing rows depend on 0-6
     }
 
     public enum Status
@@ -61,5 +62,8 @@ namespace TravelManagement.Core.Models
         // Audit: who created this booking
         public int? CreatedByUserId { get; set; }
         public User? CreatedBy      { get; set; }
+
+        // Self-drive rentals: completion is triggered by ReturnDate (handled in AUTO-01 n8n workflow)
+        public DateOnly? ReturnDate { get; set; }
     }
 }

@@ -264,6 +264,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                     Traveltime         = dto.BookingTime,
                     BookingType        = bookingType,
                     travelDate         = dto.BookingDate,
+                    ReturnDate         = dto.ReturnDate,
                     Status             = bookingStatus,
                     Pax                = dto.Pax,
                     ExternalEmployeeId = isExternalBooking ? externalEmp?.externalEmployeeID : null,
@@ -327,6 +328,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 existingBooking.CustomerID = customer!.CustomersId;
                 existingBooking.BookingType = bookingType;
                 existingBooking.travelDate = dto.BookingDate;
+                existingBooking.ReturnDate = dto.ReturnDate;
                 existingBooking.Traveltime = dto.BookingTime;
                 existingBooking.Status = bookingStatus;
                 existingBooking.Pax = dto.Pax;
