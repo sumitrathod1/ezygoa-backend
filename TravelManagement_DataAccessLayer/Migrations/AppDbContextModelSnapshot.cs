@@ -432,6 +432,42 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.ToTable("FollowUps");
                 });
 
+            modelBuilder.Entity("TravelManagement.Core.Models.InstagramQueue", b =>
+                {
+                    b.Property<int>("QueueId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("QueueId"));
+
+                    b.Property<string>("Caption")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("OrgId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("PostedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("QueueId");
+
+                    b.HasIndex("Status", "QueueId");
+
+                    b.ToTable("InstagramQueues");
+                });
+
             modelBuilder.Entity("TravelManagement.Core.Models.MarketingCampaign", b =>
                 {
                     b.Property<int>("CampaignId")

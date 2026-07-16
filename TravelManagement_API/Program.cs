@@ -3,6 +3,7 @@ using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using QuestPDF.Infrastructure;
@@ -207,6 +208,11 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"Migration error: {ex.Message}");
     }
 
+    // ── Instagram image folder ──────────────────────────────────────────
+    var igPath = app.Configuration["IG_IMAGES_PATH"] ?? "/data/ig";
+    Directory.CreateDirectory(igPath);
+    Console.WriteLine($"Instagram images folder: {igPath}");
+
     // ── Seed default Organisation (OrgId = 1) ───────────────────────────
     if (!db.Organizations.Any())
     {
@@ -251,6 +257,14 @@ app.UseSwaggerUI(c =>
 {
 c.SwaggerEndpoint("/swagger/v1/swagger.json", "TravelManagement API v1");
 c.RoutePrefix = "swagger";
+});
+
+// Serve /ig/* from the persistent image folder (public, no auth)
+var igServePath = app.Configuration["IG_IMAGES_PATH"] ?? "/data/ig";
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(igServePath),
+    RequestPath  = "/ig"
 });
 
 app.UseCors("SignalRCors");

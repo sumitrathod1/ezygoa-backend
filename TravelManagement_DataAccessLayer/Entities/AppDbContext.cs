@@ -32,6 +32,7 @@ namespace TravelManagement.DataAccessLayer.Entities
         public DbSet<Place> Places { get; set; }
         public DbSet<RouteRate> RouteRates { get; set; }
         public DbSet<RentalRate> RentalRates { get; set; }
+        public DbSet<InstagramQueue> InstagramQueues { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -100,6 +101,10 @@ namespace TravelManagement.DataAccessLayer.Entities
             modelBuilder.Entity<RentalRate>()
                 .HasIndex(r => new { r.VehicleId, r.OrgId })
                 .IsUnique();
+
+            // InstagramQueue: scheduler polls WHERE Status='pending' ORDER BY QueueId
+            modelBuilder.Entity<InstagramQueue>()
+                .HasIndex(q => new { q.Status, q.QueueId });
 
             modelBuilder.Entity<RentalRate>()
                 .HasOne(r => r.Vehicle)
