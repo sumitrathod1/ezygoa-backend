@@ -70,7 +70,9 @@ namespace TravelManagement.API.Controllers
             Directory.CreateDirectory(folder);
 
             var slug     = SanitizeName(string.IsNullOrWhiteSpace(name) ? "post" : name);
-            var fileName = $"post-{slug}-{DateTime.UtcNow:yyyyMMddHHmmss}.jpg";
+            // random suffix: n8n sends both weekly posts in parallel, often in the same second
+            var suffix   = Guid.NewGuid().ToString("N")[..6];
+            var fileName = $"post-{slug}-{DateTime.UtcNow:yyyyMMddHHmmss}-{suffix}.jpg";
             var destPath = System.IO.Path.Combine(folder, fileName);
 
             try
