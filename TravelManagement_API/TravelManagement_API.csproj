@@ -18,12 +18,22 @@
     <PackageReference Include="EPPlus" Version="7.6.1" />
     <PackageReference Include="QuestPDF" Version="2025.7.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="7.3.1" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.7" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\TravelManagement_Core\TravelManagement_Core.csproj" />
     <ProjectReference Include="..\TravelManagement_DataAccessLayer\TravelManagement_DataAccessLayer.csproj" />
     <ProjectReference Include="..\TravelManagement_BusinessLogicLayer\TravelManagement_BusinessLogicLayer.csproj" />
+  </ItemGroup>
+
+  <!-- Fonts for the Instagram post composer (IgComposeController) -->
+  <ItemGroup>
+    <None Update="Assets\Fonts\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
