@@ -10,7 +10,7 @@ namespace TravelManagement.BusinessLogicLayer.Services.Interface
         Task<List<User>> GetAllUsersAsync();
         Task<User?> GetUserByIdAsync(int id);
         Task<User> RegisterAsync(User user);
-        Task ChangePasswordAsync(ChangePasswordDTO dto);
+        Task ChangePasswordAsync(ChangePasswordDTO dto, int currentUserId = 0);
         Task ForgotPasswordAsync(ForgotPasswordRequestDTO dto);
         Task ResetPasswordAsync(ResetPasswordRequestDto dto);
         Task<User?> UpdateUserProfileAsync(int id, UpdateUserDTO dto);

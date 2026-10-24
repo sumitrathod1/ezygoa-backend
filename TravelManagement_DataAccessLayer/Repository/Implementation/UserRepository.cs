@@ -34,7 +34,17 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<User?> GetByIdAsync(int id)
         {
-            return await _context.Users.FindAsync(id);
+            var user = await _context.Users.FindAsync(id);
+            return user != null && _tenant.CanAccess(user.OrgId) ? user : null;
+        }
+
+        public async Task<List<User>> FindLoginCandidatesAsync(string username)
+        {
+            // Login ignores the tenant on purpose: the caller is not signed in yet, and a
+            // stale token left in the browser must not change which account is found.
+            // UserName is only unique per org, so return every match; the service
+            // picks the one whose password verifies.
+            return await _context.Users.Where(x => x.UserName == username && !x.IsDeleted).ToListAsync();
         }
 
         public async Task<List<User>> GetAllActiveUsersAsync()
@@ -75,7 +85,11 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<User?> UpdateUserProfileAsync(int id, UpdateUserDTO dto)
         {
             var user = await _context.Users.FindAsync(id);
-            if (user == null) return null;
+            if (user == null || !_tenant.CanAccess(user.OrgId)) return null;
+
+            // Org admins manage Employees/Admins only — never mint a SuperAdmin
+            if (dto.Role == (int)Role.SuperAdmin && !_tenant.IsSuperAdmin)
+                throw new InvalidOperationException("You cannot assign the SuperAdmin role.");
 
             if (!string.IsNullOrWhiteSpace(dto.EmployeeName)) user.EmployeeName = dto.EmployeeName;
             if (!string.IsNullOrWhiteSpace(dto.UserName))     user.UserName     = dto.UserName;
@@ -103,9 +117,17 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<User> NewUser(User user)
         {
-            // Assign to current tenant org if not explicitly set
-            if (_tenant.ShouldFilter && user.OrgId == 1)
-                user.OrgId = _tenant.OrgId;
+            // The request body is a full User, so OrgId/Role come from the client.
+            // Org admins always create users in their own org, and never a SuperAdmin.
+            if (!_tenant.IsSuperAdmin)
+            {
+                if (user.Role == Role.SuperAdmin)
+                    throw new InvalidOperationException("You cannot create a SuperAdmin account.");
+                user.OrgId = _tenant.WriteOrgId;
+            }
+
+            if (await _context.Users.AnyAsync(u => u.UserName == user.UserName && u.OrgId == user.OrgId))
+                throw new InvalidOperationException($"Username '{user.UserName}' is already taken.");
 
             user.Status = true;
             user.Password = PasswordHasher.HashPassword(user.Password);
@@ -121,7 +143,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<bool> DeleteUser(int id)
         {
             var user = await _context.Users.FirstOrDefaultAsync(x => x.userId == id);
-            if (user == null) return false;
+            if (user == null || !_tenant.CanAccess(user.OrgId)) return false;
             user.Status    = false;
             user.IsDeleted = true;
             user.DeletedAt = DateTime.Now;
@@ -132,7 +154,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<bool> RestoreUser(int id)
         {
             var user = await _context.Users.FirstOrDefaultAsync(x => x.userId == id);
-            if (user == null) return false;
+            if (user == null || !_tenant.CanAccess(user.OrgId)) return false;
             user.IsDeleted = false;
             user.Status    = true;
             user.DeletedAt = null;
@@ -160,7 +182,9 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 .OrderByDescending(b => b.travelDate)
                 .ToListAsync();
 
+            var bookingIds = bookings.Select(b => b.BookingId).ToList();
             var payments = await _context.BookingPaymentAllocations
+                .Where(p => bookingIds.Contains(p.BookingId))
                 .GroupBy(p => p.BookingId)
                 .Select(g => new
                 {
@@ -221,8 +245,12 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             }
 
             if (employeeId.HasValue)
-                return new Dictionary<int, Dictionary<DateOnly, bool>>
-                    { { employeeId.Value, availability[employeeId.Value] } };
+            {
+                // Unknown / other-org employee: return nothing instead of a KeyNotFound 500
+                return availability.TryGetValue(employeeId.Value, out var one)
+                    ? new Dictionary<int, Dictionary<DateOnly, bool>> { { employeeId.Value, one } }
+                    : new Dictionary<int, Dictionary<DateOnly, bool>>();
+            }
 
             return availability;
         }
@@ -230,6 +258,8 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<List<Booking>> FilterUsersBookingsAsync(UserFilterDTO filterDTO)
         {
             var query = _context.Bookings.Where(b => b.Userid == filterDTO.userId);
+            if (_tenant.ShouldFilter)
+                query = query.Where(b => b.OrgId == _tenant.OrgId);
 
             if (filterDTO.PerticularDate.HasValue) query = query.Where(b => b.travelDate == filterDTO.PerticularDate.Value);
             if (filterDTO.StartDate.HasValue) query = query.Where(b => b.travelDate >= filterDTO.StartDate.Value);
@@ -246,10 +276,10 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             if (request.Hours <= 0) throw new ArgumentException("Minimum overtime must be 1 hour");
 
             var user = await _context.Users.FindAsync(request.UserId);
-            if (user == null) throw new Exception("User not found");
+            if (user == null || !_tenant.CanAccess(user.OrgId)) throw new KeyNotFoundException("User not found");
 
             var booking = await _context.Bookings.FindAsync(request.BookingId);
-            if (booking == null) throw new Exception("Booking not found");
+            if (booking == null || booking.OrgId != user.OrgId) throw new KeyNotFoundException("Booking not found");
 
             var overtime = new OvertimeLog
             {

@@ -43,7 +43,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<RateChart?> UpdateAsync(string id, RateChart chart)
         {
             var existing = await _context.RateCharts.FirstOrDefaultAsync(r => r.Id == id);
-            if (existing == null) return null;
+            if (existing == null || !_tenant.CanAccess(existing.OrgId)) return null;
 
             existing.TemplateName    = chart.TemplateName;
             existing.AgentName       = chart.AgentName;
@@ -71,7 +71,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<bool> DeleteAsync(string id)
         {
             var chart = await _context.RateCharts.FindAsync(id);
-            if (chart == null) return false;
+            if (chart == null || !_tenant.CanAccess(chart.OrgId)) return false;
             _context.RateCharts.Remove(chart);
             await _context.SaveChangesAsync();
             return true;

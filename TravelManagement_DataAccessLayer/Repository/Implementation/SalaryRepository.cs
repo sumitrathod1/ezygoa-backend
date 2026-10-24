@@ -40,13 +40,19 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<Salary?> GetByIdAsync(int id)
         {
-            return await _context.salaries.Include(s => s.user).FirstOrDefaultAsync(s => s.SalaryId == id);
+            var salary = await _context.salaries.Include(s => s.user).FirstOrDefaultAsync(s => s.SalaryId == id);
+            return salary != null && _tenant.CanAccess(salary.OrgId) ? salary : null;
         }
 
         public async Task<Salary> CreateAsync(Salary salary)
         {
-            if (salary.OrgId == 0)
-                salary.OrgId = _tenant.OrgId > 0 ? _tenant.OrgId : 1;
+            // The salary always belongs to the employee's org. An org admin may only
+            // create salaries for their own employees (the body could carry any OrgId);
+            // background jobs (no tenant) use the employee's org.
+            var owner = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.userId == salary.userID);
+            if (owner == null || !_tenant.CanAccess(owner.OrgId))
+                throw new KeyNotFoundException("Employee not found");
+            salary.OrgId = owner.OrgId;
             await _context.salaries.AddAsync(salary);
             await _context.SaveChangesAsync();
             return salary;
@@ -55,7 +61,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<Salary?> MarkPaidAsync(int id, DateTime paidDate, string? notes)
         {
             var salary = await _context.salaries.FindAsync(id);
-            if (salary == null) return null;
+            if (salary == null || !_tenant.CanAccess(salary.OrgId)) return null;
             salary.IsPaid   = true;
             salary.PaidDate = paidDate;
             if (notes != null) salary.Notes = notes;

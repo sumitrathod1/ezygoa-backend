@@ -33,5 +33,14 @@ namespace TravelManagement.BusinessLogicLayer.Services.Implementation
             _bookingRepo.AssignBookingToExternalVendor(dto);
 
         public Task SettleSettlementAsync(SettleSettlementDTO dto) => _bookingRepo.SettleSettlementAsync(dto);
+
+        public Task ReverseSettlementPaymentAsync(int settlementPaymentId, string? reason) =>
+            _bookingRepo.ReverseSettlementPaymentAsync(settlementPaymentId, reason);
+
+        public Task<SettlementHistoryDTO> GetSettlementHistoryAsync(int bookingId) =>
+            _bookingRepo.GetSettlementHistoryAsync(bookingId);
+
+        public Task<PartnerStatementData> GetPartnerStatementAsync(int partnerId, DateOnly? from, DateOnly? to, int? bookingId, bool maskCustomer, bool showFare) =>
+            _bookingRepo.GetPartnerStatementAsync(partnerId, from, to, bookingId, maskCustomer, showFare);
     }
 }

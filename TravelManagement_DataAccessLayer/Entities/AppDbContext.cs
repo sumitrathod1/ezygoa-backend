@@ -33,6 +33,10 @@ namespace TravelManagement.DataAccessLayer.Entities
         public DbSet<RouteRate> RouteRates { get; set; }
         public DbSet<RentalRate> RentalRates { get; set; }
         public DbSet<InstagramQueue> InstagramQueues { get; set; }
+        public DbSet<SettlementPayment> SettlementPayments { get; set; }
+        public DbSet<AuditLog> AuditLogs { get; set; }
+        public DbSet<BusinessExpense> BusinessExpenses { get; set; }
+        public DbSet<OrgLink> OrgLinks { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -66,6 +70,40 @@ namespace TravelManagement.DataAccessLayer.Entities
             modelBuilder.Entity<RentalRate>().Property(r => r.WeeklyRate).HasPrecision(18, 2);
             modelBuilder.Entity<RentalRate>().Property(r => r.SecurityDeposit).HasPrecision(18, 2);
             modelBuilder.Entity<RentalRate>().Property(r => r.ExtraKmRate).HasPrecision(18, 2);
+
+            // Partner settlement ledger (append-only; reversals instead of deletes)
+            modelBuilder.Entity<SettlementPayment>().Property(p => p.Amount).HasPrecision(18, 2);
+            modelBuilder.Entity<SettlementPayment>()
+                .HasOne(p => p.Settlement)
+                .WithMany()
+                .HasForeignKey(p => p.SettlementId)
+                .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<SettlementPayment>().HasIndex(p => p.BookingId);
+            modelBuilder.Entity<SettlementPayment>().HasIndex(p => new { p.OrgId, p.ExternalEmployeeId, p.PaidOn });
+            // Same RequestId twice = the same payment (double tap / retry) — record once
+            modelBuilder.Entity<SettlementPayment>().HasIndex(p => new { p.OrgId, p.RequestId }).IsUnique();
+
+            // Enquiries / notifications are per organisation
+            modelBuilder.Entity<EmailInquiry>().Property(e => e.OrgId).HasDefaultValue(1);
+            modelBuilder.Entity<EmailInquiry>().HasIndex(e => new { e.OrgId, e.IsConfirmed, e.IsRejected });
+            modelBuilder.Entity<Notification>().Property(n => n.OrgId).HasDefaultValue(1);
+            modelBuilder.Entity<Notification>().HasIndex(n => new { n.OrgId, n.IsRead });
+
+            // Audit trail
+            modelBuilder.Entity<AuditLog>().HasIndex(a => new { a.OrgId, a.CreatedAt });
+            modelBuilder.Entity<AuditLog>().HasIndex(a => new { a.EntityType, a.EntityId });
+            modelBuilder.Entity<AuditLog>().HasIndex(a => a.BookingId);
+
+            // Business / advertising expenses
+            modelBuilder.Entity<BusinessExpense>().Property(e => e.Amount).HasPrecision(18, 2);
+            modelBuilder.Entity<BusinessExpense>().HasIndex(e => new { e.OrgId, e.ExpenseDate });
+
+            // Organisations allowed to hand bookings to each other (one row per pair)
+            modelBuilder.Entity<OrgLink>().HasIndex(l => new { l.OrgAId, l.OrgBId }).IsUnique();
+            modelBuilder.Entity<OrgLink>().ToTable(t => t.HasCheckConstraint("CK_OrgLinks_Order", "\"OrgAId\" < \"OrgBId\""));
+
+            // Assignment board / header badge: upcoming bookings of one org
+            modelBuilder.Entity<Booking>().HasIndex(b => new { b.OrgId, b.travelDate });
 
             // Booking → User: two FK relationships to the same table — must be explicit
             modelBuilder.Entity<Booking>()

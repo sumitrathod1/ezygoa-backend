@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
 
@@ -13,13 +14,22 @@ namespace TravelManagement.API.Controllers
     {
         private readonly AppDbContext _db;
 
-        public PlacesController(AppDbContext db) => _db = db;
+        private readonly TenantContext _tenant;
+
+        public PlacesController(AppDbContext db, TenantContext tenant)
+        {
+            _db     = db;
+            _tenant = tenant;
+        }
+
+        // Was hardcoded to OrgId 1, so every organisation read and wrote EzyGoa's data
+        private int Org => _tenant.WriteOrgId;
 
         // GET api/places
         [HttpGet]
         public async Task<IActionResult> GetAll([FromQuery] bool includeInactive = false)
         {
-            var query = _db.Places.AsNoTracking().Where(p => p.OrgId == 1);
+            var query = _db.Places.AsNoTracking().Where(p => p.OrgId == Org);
             if (!includeInactive) query = query.Where(p => p.IsActive);
 
             var places = await query
@@ -35,7 +45,7 @@ namespace TravelManagement.API.Controllers
         public async Task<IActionResult> GetById(int id)
         {
             var place = await _db.Places.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.PlaceId == id && p.OrgId == 1);
+                .FirstOrDefaultAsync(p => p.PlaceId == id && p.OrgId == Org);
 
             return place is null
                 ? ApiNotFound($"Place {id} not found")
@@ -59,7 +69,7 @@ namespace TravelManagement.API.Controllers
                 DropAllowed        = dto.DropAllowed,
                 RestrictionMessage = dto.RestrictionMessage?.Trim(),
                 IsActive           = dto.IsActive ?? true,
-                OrgId              = 1,
+                OrgId              = Org,
             };
 
             _db.Places.Add(place);
@@ -74,7 +84,7 @@ namespace TravelManagement.API.Controllers
         public async Task<IActionResult> Update(int id, [FromBody] PlaceUpsertDTO dto)
         {
             var place = await _db.Places
-                .FirstOrDefaultAsync(p => p.PlaceId == id && p.OrgId == 1);
+                .FirstOrDefaultAsync(p => p.PlaceId == id && p.OrgId == Org);
 
             if (place is null) return ApiNotFound($"Place {id} not found");
 

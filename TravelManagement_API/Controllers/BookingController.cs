@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using TravelManagement.API.Hubs;
+using TravelManagement.API.Reports;
 using TravelManagement.BusinessLogicLayer.Services.Interface;
 using TravelManagement.Core.Common;
 using TravelManagement.Core.DTOs;
@@ -66,11 +67,21 @@ namespace TravelManagement.API.Controllers
                 {
                     BookingId = g.Key,
                     TotalPaid = g.Where(x => x.PayerType == PayerType.Customer)
-                                 .Sum(x => x.PaidAmount)
+                                 .Sum(x => x.PaidAmount),
+                    CustomerWillPay = g.Where(x => x.PayerType == PayerType.Customer).Sum(x => x.AllocatedAmount),
+                    OwnerWillPay    = g.Where(x => x.PayerType != PayerType.Customer).Sum(x => x.AllocatedAmount),
                 })
                 .ToListAsync();
 
-            var payDict = payments.ToDictionary(p => p.BookingId, p => p.TotalPaid);
+            var payDict  = payments.ToDictionary(p => p.BookingId, p => p.TotalPaid);
+            var allocDict = payments.ToDictionary(p => p.BookingId, p => p);
+
+            // Commission is needed to edit a partner booking without losing it
+            var commissions = await _db.ExternalEmployeeCashCollections
+                .Where(s => bookingIds.Contains(s.BookingId))
+                .GroupBy(s => s.BookingId)
+                .Select(g => new { g.Key, Commission = g.Max(x => x.CommissionAmount) })
+                .ToDictionaryAsync(x => x.Key, x => x.Commission);
 
             var result = bookings.Select(b => new
             {
@@ -84,8 +95,13 @@ namespace TravelManagement.API.Controllers
                 b.Payment, b.TravelAgentId, b.TravelAgent,
                 b.CreatedByUserId,
                 CreatedByName = b.CreatedBy != null ? b.CreatedBy.EmployeeName : null,
+                b.ReturnDate,
                 AdvancePaid = payDict.GetValueOrDefault(b.BookingId, 0),
-                Balance     = b.Amount - payDict.GetValueOrDefault(b.BookingId, 0)
+                Balance     = b.Amount - payDict.GetValueOrDefault(b.BookingId, 0),
+                CustomerWillPay  = allocDict.TryGetValue(b.BookingId, out var a1) ? a1.CustomerWillPay : 0,
+                OwnerWillPay     = allocDict.TryGetValue(b.BookingId, out var a2) ? a2.OwnerWillPay : 0,
+                CommissionAmount = b.ExternalEmployeeId != null ? commissions.GetValueOrDefault(b.BookingId, 0) : (decimal?)null,
+                EarnedAmount     = b.ExternalEmployeeId == null ? b.Amount : commissions.GetValueOrDefault(b.BookingId, 0),
             });
 
             return ApiOk(result);
@@ -115,10 +131,11 @@ namespace TravelManagement.API.Controllers
 
             var newBooking = await _bookingService.CreateBookingAsync(bookingDTO);
 
-            await _hubContext.Clients.Group("Admin")
+            // Only this organisation's screens refresh
+            await _hubContext.Clients.Group(HubGroups.OrgRole(newBooking.OrgId, "Admin"))
                 .SendAsync("ReceiveBookingUpdate", new { type = "ADMIN_BOOKING_REFRESH" });
 
-            await _hubContext.Clients.Group("Employee")
+            await _hubContext.Clients.Group(HubGroups.OrgRole(newBooking.OrgId, "Employee"))
                 .SendAsync("ReceiveBookingUpdate", new
                 {
                     type = "EMPLOYEE_BOOKING_REFRESH",
@@ -169,8 +186,49 @@ namespace TravelManagement.API.Controllers
         [HttpPost("settle-settlement")]
         public async Task<IActionResult> SettleSettlement([FromBody] SettleSettlementDTO dto)
         {
+            if (dto is null) return ApiBadRequest("Payment data is required");
             await _bookingService.SettleSettlementAsync(dto);
-            return ApiOk("Settlement completed successfully");
+            return ApiOk("Payment recorded");
+        }
+
+        /// <summary>Itemised payment history of one partner booking.</summary>
+        [HttpGet("settlements/{bookingId:int}/payments")]
+        public async Task<IActionResult> GetSettlementHistory(int bookingId)
+        {
+            return ApiOk(await _bookingService.GetSettlementHistoryAsync(bookingId));
+        }
+
+        /// <summary>Undo a payment with a reversal entry (payments are never deleted).</summary>
+        [HttpPost("settlement-payments/{id:int}/reverse")]
+        public async Task<IActionResult> ReverseSettlementPayment(int id, [FromBody] ReverseSettlementPaymentDTO dto)
+        {
+            await _bookingService.ReverseSettlementPaymentAsync(id, dto?.Reason);
+            return ApiOk("Payment reversed");
+        }
+
+        /// <summary>
+        /// Partner commission statement as PDF. Period by travel date (from/to), or a single
+        /// booking. Customer names are reduced to "First L." unless maskCustomer=false.
+        /// </summary>
+        [HttpGet("vendors/{vendorId:int}/statement")]
+        public async Task<IActionResult> GetPartnerStatement(
+            int vendorId,
+            [FromQuery] DateOnly? from = null,
+            [FromQuery] DateOnly? to = null,
+            [FromQuery] int? bookingId = null,
+            [FromQuery] bool maskCustomer = true,
+            [FromQuery] bool showFare = true)
+        {
+            if (from.HasValue && to.HasValue && from > to)
+                return ApiBadRequest("'From' date must be before 'To' date");
+
+            var data = await _bookingService.GetPartnerStatementAsync(vendorId, from, to, bookingId, maskCustomer, showFare);
+            var pdf  = PartnerStatementPdf.Generate(data);
+
+            var safeName = new string(data.PartnerName.Where(char.IsLetterOrDigit).ToArray());
+            var suffix = bookingId.HasValue ? $"Booking{bookingId}"
+                : from.HasValue || to.HasValue ? $"{from:yyyyMMdd}-{to:yyyyMMdd}" : "All";
+            return ApiFile(pdf, "application/pdf", $"Statement_{(safeName.Length > 0 ? safeName : "Partner")}_{suffix}.pdf");
         }
     }
 }

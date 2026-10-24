@@ -56,15 +56,18 @@ namespace TravelManagement.API.Infrastructure
                                 : null,
                             Pax = bookingDto.Pax ?? 1,
                             VehicleName = bookingDto.VehicleName,
-                            CreatedAt = DateOnly.FromDateTime(DateTime.Now)
+                            CreatedAt = DateOnly.FromDateTime(DateTime.Now),
+                            OrgId = _settings.OrgId,
                         };
 
                         await dbContext.EmailInquiries.AddAsync(inquiry);
                         await notificationService.CreateAsync(
-                            $"📩Inquiry From: {inquiry.From} → {inquiry.To} | Pax: {inquiry.Pax} | Vehicle: {inquiry.VehicleName}");
+                            $"📩Inquiry From: {inquiry.From} → {inquiry.To} | Pax: {inquiry.Pax} | Vehicle: {inquiry.VehicleName}",
+                            _settings.OrgId);
                         await notificationService.SendPushNotificationAsync(
                             "📩 New Inquiry Received!",
-                            $"{inquiry.From} → {inquiry.To} | {inquiry.Pax} Pax | {inquiry.VehicleName} | {inquiry.TravelDate}");
+                            $"{inquiry.From} → {inquiry.To} | {inquiry.Pax} Pax | {inquiry.VehicleName} | {inquiry.TravelDate}",
+                            _settings.OrgId);
                     }
                     await dbContext.SaveChangesAsync();
                 }

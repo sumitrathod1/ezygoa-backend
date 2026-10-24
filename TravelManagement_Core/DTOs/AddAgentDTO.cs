@@ -10,8 +10,10 @@ namespace TravelManagement.Core.DTOs
         public string ContactNumber { get; set; } = string.Empty;
         public string AgentType { get; set; } = string.Empty;
 
-        [EmailAddress]
-        public string Email { get; set; } = string.Empty;
+        // Optional: hotels and vehicle owners often have no email, and the form sends ""
+        // for a blank field — [EmailAddress] rejected that, so such agents could not be saved.
+        [OptionalEmail]
+        public string? Email { get; set; }
 
         // Extended fields
         public string? ContactPerson { get; set; }
@@ -23,5 +25,19 @@ namespace TravelManagement.Core.DTOs
         public string? IFSC { get; set; }
         public string? Notes { get; set; }
         public bool IsActive { get; set; } = true;
+    }
+}
+namespace TravelManagement.Core.DTOs
+{
+    /// <summary>Valid e-mail address, or empty / null.</summary>
+    [AttributeUsage(AttributeTargets.Property)]
+    public sealed class OptionalEmailAttribute : ValidationAttribute
+    {
+        private static readonly EmailAddressAttribute Inner = new();
+
+        public OptionalEmailAttribute() : base("The {0} field is not a valid e-mail address.") { }
+
+        public override bool IsValid(object? value) =>
+            value is not string s || string.IsNullOrWhiteSpace(s) || Inner.IsValid(s.Trim());
     }
 }

@@ -8,7 +8,7 @@ namespace TravelManagement.API.Controllers
 {
     [Route("api/[controller]")]
     [EnableRateLimiting("api")]
-    [Authorize]
+    [Authorize(Roles = "Admin")]   // salary lists were readable by any signed-in driver
     public class SalaryController : ApiControllerBase
     {
         private readonly ISalaryService _service;

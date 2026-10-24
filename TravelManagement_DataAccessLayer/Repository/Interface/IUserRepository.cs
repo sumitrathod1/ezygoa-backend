@@ -6,6 +6,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Interface
     public interface IUserRepository
     {
         Task<User?> FindByUsernameAsync(string username);
+        Task<List<User>> FindLoginCandidatesAsync(string username);
         Task<User?> GetByIdAsync(int id);
         Task<List<User>> GetAllActiveUsersAsync();
         Task SaveFcmTokenAsync(int userId, string fcmToken);

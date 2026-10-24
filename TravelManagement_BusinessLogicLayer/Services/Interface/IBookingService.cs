@@ -14,5 +14,8 @@ namespace TravelManagement.BusinessLogicLayer.Services.Interface
         Task<List<ExternalVendorSettlementDTO>> GetVendorBookingsAsync(int? vendorId);
         Task ReassignToExternalAsync(AssignExternalVendorDTO dto);
         Task SettleSettlementAsync(SettleSettlementDTO dto);
+        Task ReverseSettlementPaymentAsync(int settlementPaymentId, string? reason);
+        Task<SettlementHistoryDTO> GetSettlementHistoryAsync(int bookingId);
+        Task<PartnerStatementData> GetPartnerStatementAsync(int partnerId, DateOnly? from, DateOnly? to, int? bookingId, bool maskCustomer, bool showFare);
     }
 }

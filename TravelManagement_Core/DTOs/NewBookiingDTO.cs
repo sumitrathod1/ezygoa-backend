@@ -15,7 +15,8 @@ namespace TravelManagement.Core.DTOs
         public int? VehicleId { get; set; }
         public int? UserId { get; set; }
         public string BookingType { get; set; } = "Notspecified";
-        public string BookingStatus { get; set; } = "Pending";
+        // null = keep the existing status on edit (Pending for a new booking)
+        public string? BookingStatus { get; set; }
         public string? ExternalEmployee { get; set; }
         public string? ExternalEmployeeNumber { get; set; }
         public double? commissionAmount { get; set; }

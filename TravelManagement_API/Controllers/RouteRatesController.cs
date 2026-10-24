@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
 
@@ -13,7 +14,16 @@ namespace TravelManagement.API.Controllers
     {
         private readonly AppDbContext _db;
 
-        public RouteRatesController(AppDbContext db) => _db = db;
+        private readonly TenantContext _tenant;
+
+        public RouteRatesController(AppDbContext db, TenantContext tenant)
+        {
+            _db     = db;
+            _tenant = tenant;
+        }
+
+        // Was hardcoded to OrgId 1, so every organisation read and wrote EzyGoa's data
+        private int Org => _tenant.WriteOrgId;
 
         // GET api/routerates?fromPlaceId=&toPlaceId=&vehicleType=
         [HttpGet]
@@ -27,7 +37,7 @@ namespace TravelManagement.API.Controllers
                 .AsNoTracking()
                 .Include(r => r.FromPlace)
                 .Include(r => r.ToPlace)
-                .Where(r => r.OrgId == 1);
+                .Where(r => r.OrgId == Org);
 
             if (!includeInactive) query = query.Where(r => r.IsActive);
             if (fromPlaceId.HasValue) query = query.Where(r => r.FromPlaceId == fromPlaceId.Value);
@@ -50,9 +60,9 @@ namespace TravelManagement.API.Controllers
         public async Task<IActionResult> Quote([FromQuery] int fromPlaceId, [FromQuery] int toPlaceId)
         {
             var fromPlace = await _db.Places.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.PlaceId == fromPlaceId && p.OrgId == 1);
+                .FirstOrDefaultAsync(p => p.PlaceId == fromPlaceId && p.OrgId == Org);
             var toPlace = await _db.Places.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.PlaceId == toPlaceId && p.OrgId == 1);
+                .FirstOrDefaultAsync(p => p.PlaceId == toPlaceId && p.OrgId == Org);
 
             if (fromPlace is null) return ApiNotFound($"Place {fromPlaceId} not found");
             if (toPlace   is null) return ApiNotFound($"Place {toPlaceId} not found");
@@ -66,7 +76,7 @@ namespace TravelManagement.API.Controllers
                 .Where(r => r.FromPlaceId == fromPlaceId
                          && r.ToPlaceId   == toPlaceId
                          && r.IsActive
-                         && r.OrgId == 1)
+                         && r.OrgId == Org)
                 .OrderBy(r => r.VehicleType)
                 .Select(r => new
                 {
@@ -93,7 +103,7 @@ namespace TravelManagement.API.Controllers
                 .AsNoTracking()
                 .Include(r => r.FromPlace)
                 .Include(r => r.ToPlace)
-                .FirstOrDefaultAsync(r => r.RouteRateId == id && r.OrgId == 1);
+                .FirstOrDefaultAsync(r => r.RouteRateId == id && r.OrgId == Org);
 
             return rate is null
                 ? ApiNotFound($"Route rate {id} not found")
@@ -110,8 +120,8 @@ namespace TravelManagement.API.Controllers
             if (dto.Price <= 0)
                 return ApiBadRequest("Price must be greater than zero");
 
-            bool fromExists = await _db.Places.AnyAsync(p => p.PlaceId == dto.FromPlaceId && p.OrgId == 1);
-            bool toExists   = await _db.Places.AnyAsync(p => p.PlaceId == dto.ToPlaceId   && p.OrgId == 1);
+            bool fromExists = await _db.Places.AnyAsync(p => p.PlaceId == dto.FromPlaceId && p.OrgId == Org);
+            bool toExists   = await _db.Places.AnyAsync(p => p.PlaceId == dto.ToPlaceId   && p.OrgId == Org);
             if (!fromExists) return ApiBadRequest($"FromPlace {dto.FromPlaceId} not found");
             if (!toExists)   return ApiBadRequest($"ToPlace {dto.ToPlaceId} not found");
 
@@ -119,7 +129,7 @@ namespace TravelManagement.API.Controllers
                 r.FromPlaceId == dto.FromPlaceId &&
                 r.ToPlaceId   == dto.ToPlaceId   &&
                 r.VehicleType == dto.VehicleType  &&
-                r.OrgId == 1);
+                r.OrgId == Org);
             if (duplicate)
                 return ApiBadRequest($"A rate for this route and vehicle type already exists");
 
@@ -132,7 +142,7 @@ namespace TravelManagement.API.Controllers
                 PeakPrice    = dto.PeakPrice,
                 FloorPrice   = dto.FloorPrice,
                 IsActive     = dto.IsActive ?? true,
-                OrgId        = 1,
+                OrgId        = Org,
             };
 
             _db.RouteRates.Add(rate);
@@ -147,7 +157,7 @@ namespace TravelManagement.API.Controllers
         public async Task<IActionResult> Update(int id, [FromBody] RouteRateUpsertDTO dto)
         {
             var rate = await _db.RouteRates
-                .FirstOrDefaultAsync(r => r.RouteRateId == id && r.OrgId == 1);
+                .FirstOrDefaultAsync(r => r.RouteRateId == id && r.OrgId == Org);
 
             if (rate is null) return ApiNotFound($"Route rate {id} not found");
 

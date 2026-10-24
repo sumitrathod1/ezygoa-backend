@@ -35,5 +35,8 @@ namespace TravelManagement.Core.Models
         public string? LostReason { get; set; }
         public int? ConvertedBookingId { get; set; }
         public Booking? ConvertedBooking { get; set; }
+
+        // Multi-tenancy: the org whose mailbox / website the enquiry came from
+        public int OrgId { get; set; } = 1;
     }
 }

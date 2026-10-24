@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using TravelManagement.Core.Models;
 using Microsoft.AspNetCore.RateLimiting;
 using TravelManagement.BusinessLogicLayer.Services.Interface;
 using TravelManagement.Core.Common;
@@ -40,10 +41,9 @@ namespace TravelManagement.API.Controllers
         [HttpGet("GetAllAgent")]
         public async Task<IActionResult> GetAllAgent()
         {
+            // An org with no agents yet is an empty list, not an error
             var agents = await _travelAgentsService.GetAllAgentsDashboardAsync();
-            return agents is null || agents.Count == 0
-                ? ApiNotFound("No travel agents found")
-                : ApiOk(agents);
+            return ApiOk(agents ?? new List<AgentDashboardDTO>());
         }
 
         [HttpPost("ApplyAgentPayment")]
@@ -56,7 +56,10 @@ namespace TravelManagement.API.Controllers
             if (applied <= 0)
                 return ApiBadRequest("No pending amount to apply for this agent");
 
-            return ApiOk($"Payment of ₹{applied} applied successfully");
+            var unapplied = dto.TotalPaidAmount - applied;
+            return unapplied > 0
+                ? ApiOk($"₹{applied:0.##} applied. ₹{unapplied:0.##} is more than this agent owes and was not recorded.")
+                : ApiOk($"Payment of ₹{applied:0.##} applied successfully");
         }
 
         [HttpGet("{id}")]
@@ -66,9 +69,7 @@ namespace TravelManagement.API.Controllers
             if (agent is null) return ApiNotFound($"Travel agent with ID {id} not found");
 
             var bookings = await _travelAgentsService.GetAgentBookingsByIdAsync(id);
-            return bookings is null || bookings.Count == 0
-                ? ApiNotFound($"No bookings found for travel agent with ID {id}")
-                : ApiOk(bookings);
+            return ApiOk(bookings ?? new List<Booking>());
         }
 
         [HttpGet("ExportAgentBookingsPdf/{agentId}")]

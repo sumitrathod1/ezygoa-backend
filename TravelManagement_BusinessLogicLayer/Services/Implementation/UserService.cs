@@ -25,14 +25,14 @@ namespace TravelManagement.BusinessLogicLayer.Services.Implementation
 
         public async Task<(User user, string token)> AuthenticateAsync(AuthDTO dto)
         {
-            var user = await _userRepo.FindByUsernameAsync(dto.userName)
+            // Usernames are unique per org, not globally, and login must not depend on
+            // whatever token the browser still holds — check every candidate account.
+            var candidates = await _userRepo.FindLoginCandidatesAsync(dto.userName);
+            var user = candidates.FirstOrDefault(u => PasswordHasher.VerifyPassword(dto.Password, u.Password))
                 ?? throw new UnauthorizedAccessException("Invalid credentials");
 
             if (!user.Status)
                 throw new UnauthorizedAccessException("User account is deactivated. Contact admin.");
-
-            if (!PasswordHasher.VerifyPassword(dto.Password, user.Password))
-                throw new UnauthorizedAccessException("Invalid credentials");
 
             var token = new JwtService(_config).GenerateToken(user);
             return (user, token);
@@ -44,9 +44,12 @@ namespace TravelManagement.BusinessLogicLayer.Services.Implementation
 
         public Task<User> RegisterAsync(User user) => _userRepo.NewUser(user);
 
-        public async Task ChangePasswordAsync(ChangePasswordDTO dto)
+        public async Task ChangePasswordAsync(ChangePasswordDTO dto, int currentUserId = 0)
         {
-            var user = await _userRepo.FindByUsernameAsync(dto.UserName)
+            // Signed-in callers can only change their own password
+            var user = (currentUserId > 0
+                    ? await _userRepo.GetByIdAsync(currentUserId)
+                    : await _userRepo.FindByUsernameAsync(dto.UserName))
                 ?? throw new KeyNotFoundException("User Not Found!");
 
             if (!PasswordHasher.VerifyPassword(dto.OldPassword, user.Password))

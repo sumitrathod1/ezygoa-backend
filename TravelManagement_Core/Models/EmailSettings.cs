@@ -10,5 +10,8 @@ namespace TravelManagement.Core.Models
         public string ProcessedFolder { get; set; } = string.Empty;
         public int PollIntervalSeconds { get; set; }
         public string SubjectKeyword { get; set; } = string.Empty;
+
+        /// <summary>Organisation that owns this mailbox; its enquiries are filed there. Config: Email:OrgId (default 1 = EzyGoa).</summary>
+        public int OrgId { get; set; } = 1;
     }
 }

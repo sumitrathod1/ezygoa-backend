@@ -10,7 +10,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Interface
         Task<List<Notification>> GetUnreadNotificationsAsync();
         Task<Notification?> GetNotificationByIdAsync(int id);
         Task MarkAllNotificationsAsReadAsync();
-        Task<int> GetVehicleIdByTypeAsync(VechileType vehicleType, string? vehicleName);
+        Task<int?> GetVehicleIdByTypeAsync(VechileType vehicleType, string? vehicleName, int orgId);
         Task SaveChangesAsync();
     }
 }

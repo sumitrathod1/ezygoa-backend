@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using OfficeOpenXml;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
 
@@ -12,12 +13,28 @@ namespace TravelManagement.API.Controllers
     public class BulkUploadController : ApiControllerBase
     {
         private readonly AppDbContext _db;
+        private readonly TenantContext _tenant;
 
-        public BulkUploadController(AppDbContext db)
+        public BulkUploadController(AppDbContext db, TenantContext tenant)
         {
             _db = db;
+            _tenant = tenant;
             ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
         }
+
+        // Everything here used to ignore the organisation: templates listed every org's
+        // vehicles/drivers/agents, lookups matched across orgs, and inserted rows took
+        // the default OrgId = 1.
+        private int Org => _tenant.WriteOrgId;
+
+        private IQueryable<Vehicle> OrgVehicles => _db.Vehicles.Where(v => v.OrgId == Org);
+
+        // Names are not unique (and ToDictionary threw on the first duplicate) — keep the first
+        private async Task<Dictionary<string, int>> VehicleMapAsync() =>
+            (await OrgVehicles.Where(v => v.VehicleName != null)
+                .Select(v => new { v.VehicleName, v.VehicleId }).ToListAsync())
+            .GroupBy(v => v.VehicleName!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First().VehicleId, StringComparer.OrdinalIgnoreCase);
 
         // ── GET api/bulkupload/template/{type} ────────────────────────────────
         [HttpGet("template/{type}")]
@@ -26,18 +43,18 @@ namespace TravelManagement.API.Controllers
             using var package = new ExcelPackage();
             var ws = package.Workbook.Worksheets.Add("Data");
 
-            var vehicles = await _db.Vehicles
+            var vehicles = await OrgVehicles
                 .Where(v => v.VehicleName != null)
                 .Select(v => v.VehicleName!)
                 .ToListAsync();
 
             var drivers = await _db.Users
-                .Where(u => u.Role == Role.Employee && !u.IsDeleted)
+                .Where(u => u.Role == Role.Employee && !u.IsDeleted && u.OrgId == Org)
                 .Select(u => u.EmployeeName)
                 .ToListAsync();
 
             var agents = await _db.TravelAgents
-                .Where(a => a.IsActive)
+                .Where(a => a.IsActive && a.OrgId == Org)
                 .Select(a => a.Name)
                 .ToListAsync();
 
@@ -236,12 +253,16 @@ namespace TravelManagement.API.Controllers
 
         private async Task ProcessBookings(ExcelWorksheet ws, UploadResult result)
         {
-            var vehicleMap = await _db.Vehicles.ToDictionaryAsync(v => v.VehicleName ?? "", v => v.VehicleId);
-            var driverMap = await _db.Users
-                .Where(u => u.Role == Role.Employee && !u.IsDeleted)
-                .ToDictionaryAsync(u => u.EmployeeName, u => u.userId);
-            var agentMap = await _db.TravelAgents
-                .ToDictionaryAsync(a => a.Name, a => a.AgentId);
+            var vehicleMap = await VehicleMapAsync();
+            var driverMap = (await _db.Users
+                    .Where(u => u.Role == Role.Employee && !u.IsDeleted && u.OrgId == Org)
+                    .Select(u => new { u.EmployeeName, u.userId }).ToListAsync())
+                .GroupBy(u => u.EmployeeName.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().userId, StringComparer.OrdinalIgnoreCase);
+            var agentMap = (await _db.TravelAgents.Where(a => a.OrgId == Org)
+                    .Select(a => new { a.Name, a.AgentId }).ToListAsync())
+                .GroupBy(a => a.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().AgentId, StringComparer.OrdinalIgnoreCase);
 
             for (int row = 3; row <= ws.Dimension?.End.Row; row++)
             {
@@ -282,10 +303,10 @@ namespace TravelManagement.API.Controllers
                         continue;
                     }
 
-                    var customer = await _db.Customers.FirstOrDefaultAsync(c => c.CustomerNumber == custPhone);
+                    var customer = await _db.Customers.FirstOrDefaultAsync(c => c.CustomerNumber == custPhone && c.OrgId == Org);
                     if (customer == null)
                     {
-                        customer = new Customers { CustomerName = custName, CustomerNumber = custPhone, TravelDate = travelDate };
+                        customer = new Customers { CustomerName = custName, CustomerNumber = custPhone, TravelDate = travelDate, OrgId = Org };
                         _db.Customers.Add(customer);
                         await _db.SaveChangesAsync();
                     }
@@ -310,21 +331,24 @@ namespace TravelManagement.API.Controllers
                         Status = Status.Pending,
                         Payment = Payment.Admin,
                         Assigned = true,
+                        OrgId = Org,
+                        CreatedByUserId = _tenant.UserId > 0 ? _tenant.UserId : null,
                     });
                     await _db.SaveChangesAsync();
                     result.Successful++;
                 }
                 catch (Exception ex)
                 {
+                    _db.ChangeTracker.Clear();   // don't let one bad row poison the rest
                     result.Failed++;
-                    result.Errors.Add(new RowError { Row = row, Messages = new List<string> { ex.Message } });
+                    result.Errors.Add(new RowError { Row = row, Messages = new List<string> { ex.InnerException?.Message ?? ex.Message } });
                 }
             }
         }
 
         private async Task ProcessExpenses(ExcelWorksheet ws, UploadResult result)
         {
-            var vehicleMap = await _db.Vehicles.ToDictionaryAsync(v => v.VehicleName ?? "", v => v.VehicleId);
+            var vehicleMap = await VehicleMapAsync();
 
             for (int row = 3; row <= ws.Dimension?.End.Row; row++)
             {
@@ -358,21 +382,23 @@ namespace TravelManagement.API.Controllers
                         ExpenseDate = expDate,
                         CategoryType = category,
                         Amount = amount,
+                        OrgId = Org,
                     });
                     await _db.SaveChangesAsync();
                     result.Successful++;
                 }
                 catch (Exception ex)
                 {
+                    _db.ChangeTracker.Clear();   // don't let one bad row poison the rest
                     result.Failed++;
-                    result.Errors.Add(new RowError { Row = row, Messages = new List<string> { ex.Message } });
+                    result.Errors.Add(new RowError { Row = row, Messages = new List<string> { ex.InnerException?.Message ?? ex.Message } });
                 }
             }
         }
 
         private async Task ProcessDocuments(ExcelWorksheet ws, UploadResult result)
         {
-            var vehicleMap = await _db.Vehicles.ToDictionaryAsync(v => v.VehicleName ?? "", v => (int?)v.VehicleId);
+            var vehicleMap = (await VehicleMapAsync()).ToDictionary(kv => kv.Key, kv => (int?)kv.Value, StringComparer.OrdinalIgnoreCase);
 
             for (int row = 3; row <= ws.Dimension?.End.Row; row++)
             {
@@ -433,21 +459,23 @@ namespace TravelManagement.API.Controllers
                         HasExpiry = hasExpiry,
                         Description = notes,
                         Title = docType,
+                        OrgId = Org,
                     });
                     await _db.SaveChangesAsync();
                     result.Successful++;
                 }
                 catch (Exception ex)
                 {
+                    _db.ChangeTracker.Clear();   // don't let one bad row poison the rest
                     result.Failed++;
-                    result.Errors.Add(new RowError { Row = row, Messages = new List<string> { ex.Message } });
+                    result.Errors.Add(new RowError { Row = row, Messages = new List<string> { ex.InnerException?.Message ?? ex.Message } });
                 }
             }
         }
 
         private async Task ProcessMaintenance(ExcelWorksheet ws, UploadResult result)
         {
-            var vehicleMap = await _db.Vehicles.ToDictionaryAsync(v => v.VehicleName ?? "", v => v.VehicleId);
+            var vehicleMap = await VehicleMapAsync();
 
             for (int row = 3; row <= ws.Dimension?.End.Row; row++)
             {
@@ -488,8 +516,9 @@ namespace TravelManagement.API.Controllers
                 }
                 catch (Exception ex)
                 {
+                    _db.ChangeTracker.Clear();   // don't let one bad row poison the rest
                     result.Failed++;
-                    result.Errors.Add(new RowError { Row = row, Messages = new List<string> { ex.Message } });
+                    result.Errors.Add(new RowError { Row = row, Messages = new List<string> { ex.InnerException?.Message ?? ex.Message } });
                 }
             }
         }

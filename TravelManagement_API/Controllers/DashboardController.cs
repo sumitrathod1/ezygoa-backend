@@ -9,7 +9,7 @@ using TravelManagement.DataAccessLayer.Entities;
 namespace TravelManagement.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize]
+    [Authorize(Roles = "Admin")]   // was any signed-in user — drivers could read revenue and every salary
     [EnableRateLimiting("api")]
     public class DashboardController : ApiControllerBase
     {
@@ -30,6 +30,22 @@ namespace TravelManagement.API.Controllers
         private IQueryable<Salary>        OrgSalaries  => _tenant.ShouldFilter ? _db.salaries.Where(s => s.OrgId == _tenant.OrgId)         : _db.salaries;
 
         /// <summary>
+        /// What the business actually earns from a set of bookings: the full fare for
+        /// bookings it runs itself, only the commission for bookings handed to an
+        /// external partner (the rest of that fare belongs to the partner).
+        /// </summary>
+        private async Task<decimal> EarnedAsync(IQueryable<Booking> bookings)
+        {
+            var own = await bookings.Where(b => b.ExternalEmployeeId == null)
+                .SumAsync(b => (decimal?)b.Amount) ?? 0m;
+            var partnerIds = bookings.Where(b => b.ExternalEmployeeId != null).Select(b => b.BookingId);
+            var commission = await _db.ExternalEmployeeCashCollections
+                .Where(s => partnerIds.Contains(s.BookingId))
+                .SumAsync(s => (decimal?)s.CommissionAmount) ?? 0m;
+            return own + commission;
+        }
+
+        /// <summary>
         /// Lightweight calendar summary for a given month.
         /// Returns KPIs + per-date {count, vehicleNames} — no full booking objects.
         /// ~5 KB response vs 200+ KB from View-Bookings.
@@ -44,16 +60,18 @@ namespace TravelManagement.API.Controllers
             var targetYear  = year  ?? today.Year;
 
             // KPI aggregates
-            var totalBookings = await OrgBookings.AsNoTracking().CountAsync();
+            var totalBookings = await OrgBookings.AsNoTracking().CountAsync(b => b.Status != Status.Canceled);
 
             var todayBookings = await OrgBookings.AsNoTracking()
                 .CountAsync(b => b.travelDate == today && b.Status != Status.Canceled);
 
-            var todayEarning = (await OrgBookings.AsNoTracking()
-                .Where(b => b.travelDate == today && b.Status != Status.Canceled)
-                .SumAsync(b => (decimal?)b.Amount)) ?? 0;
+            var todayEarning = await EarnedAsync(OrgBookings.AsNoTracking()
+                .Where(b => b.travelDate == today && b.Status != Status.Canceled));
 
-            var totalRevenue = (await OrgBookings.AsNoTracking()
+            var totalRevenue = await EarnedAsync(OrgBookings.AsNoTracking()
+                .Where(b => b.Status != Status.Canceled));
+
+            var grossBookingValue = (await OrgBookings.AsNoTracking()
                 .Where(b => b.Status != Status.Canceled)
                 .SumAsync(b => (decimal?)b.Amount)) ?? 0;
 
@@ -112,9 +130,138 @@ namespace TravelManagement.API.Controllers
                 todayBookings,
                 todayEarning,
                 totalRevenue,
+                grossBookingValue,
                 calendarData,
                 availableVehicles,
                 availableDrivers
+            });
+        }
+
+        /// <summary>
+        /// Business earnings for a date range (default: this month). Keeps gross booking
+        /// value, earned revenue, commission earned / collected / outstanding and each
+        /// expense type separate, so the full customer fare of partner bookings is never
+        /// counted as income.
+        /// </summary>
+        [HttpGet("earnings-summary")]
+        public async Task<IActionResult> GetEarningsSummary([FromQuery] DateOnly? from, [FromQuery] DateOnly? to)
+        {
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            var f = from ?? new DateOnly(today.Year, today.Month, 1);
+            var t = to ?? f.AddMonths(1).AddDays(-1);
+            if (f > t) return ApiBadRequest("'From' date must be before 'To' date");
+
+            var live = OrgBookings.AsNoTracking()
+                .Where(b => b.Status != Status.Canceled && b.travelDate >= f && b.travelDate <= t);
+
+            var gross = await live.SumAsync(b => (decimal?)b.Amount) ?? 0m;
+            var own   = await live.Where(b => b.ExternalEmployeeId == null).SumAsync(b => (decimal?)b.Amount) ?? 0m;
+            var ownCount = await live.CountAsync(b => b.ExternalEmployeeId == null);
+
+            // Partner bookings in the period with their settlement state
+            var partnerRows = await _db.ExternalEmployeeCashCollections.AsNoTracking()
+                .Include(s => s.ExternalEmployee)
+                .Where(s => live.Where(b => b.ExternalEmployeeId != null).Select(b => b.BookingId).Contains(s.BookingId))
+                .ToListAsync();
+            var ids = partnerRows.Select(s => s.BookingId).ToList();
+            var advances = await _db.BookingPaymentAllocations.AsNoTracking()
+                .Where(p => ids.Contains(p.BookingId) && p.PayerType == PayerType.Customer)
+                .GroupBy(p => p.BookingId)
+                .Select(g => new { g.Key, Paid = g.Sum(x => x.PaidAmount) })
+                .ToDictionaryAsync(x => x.Key, x => x.Paid);
+
+            decimal commission = 0, commissionOutstanding = 0, payableOutstanding = 0;
+            var partners = new Dictionary<int, (string Name, int Bookings, decimal Commission, decimal Outstanding, decimal WeOwe)>();
+            foreach (var s in partnerRows)
+            {
+                var adv = advances.GetValueOrDefault(s.BookingId, 0);
+                var outC = SettlementMath.CommissionOutstanding(s, adv);
+                var outP = SettlementMath.PayableOutstanding(s, adv);
+                commission += s.CommissionAmount;
+                commissionOutstanding += outC;
+                payableOutstanding += outP;
+
+                var key = s.ExternalEmployeeId ?? 0;
+                var cur = partners.GetValueOrDefault(key, (s.ExternalEmployee?.externalEmployeeName ?? "Unknown partner", 0, 0m, 0m, 0m));
+                partners[key] = (cur.Item1, cur.Item2 + 1, cur.Item3 + s.CommissionAmount, cur.Item4 + outC, cur.Item5 + outP);
+            }
+
+            // Expenses in the period
+            var fDt = f.ToDateTime(TimeOnly.MinValue);
+            var tDt = t.ToDateTime(TimeOnly.MaxValue);
+            var vehicleExp = await OrgExpenses.AsNoTracking()
+                .Where(e => e.ExpenseDate >= fDt && e.ExpenseDate <= tDt && e.CategoryType != Category.Salary)
+                .SumAsync(e => (decimal?)e.Amount) ?? 0m;
+            int fYM = f.Year * 100 + f.Month, tYM = t.Year * 100 + t.Month;
+            var salaries = await OrgSalaries.AsNoTracking()
+                .Where(s => s.Year * 100 + s.Month >= fYM && s.Year * 100 + s.Month <= tYM)
+                .SumAsync(s => (decimal?)s.NetSalaey) ?? 0m;
+
+            var business = await _db.BusinessExpenses.AsNoTracking()
+                .Where(e => !e.IsDeleted && (!_tenant.ShouldFilter || e.OrgId == _tenant.OrgId)
+                         && e.ExpenseDate >= f && e.ExpenseDate <= t)
+                .ToListAsync();
+            bool IsAd(BusinessExpense e) => e.Platform != null || e.Category.Equals("Advertising", StringComparison.OrdinalIgnoreCase);
+            var adSpend    = business.Where(IsAd).Sum(e => e.Amount);
+            var otherBiz   = business.Where(e => !IsAd(e)).Sum(e => e.Amount);
+
+            var earned        = own + commission;
+            var totalExpenses = vehicleExp + salaries + adSpend + otherBiz;
+
+            return ApiOk(new
+            {
+                from = f,
+                to   = t,
+                // Revenue — kept separate on purpose
+                grossBookingValue   = gross,
+                ownBookingRevenue   = own,
+                ownBookings         = ownCount,
+                partnerBookings     = partnerRows.Count,
+                commissionEarned    = commission,
+                commissionCollected = commission - commissionOutstanding,
+                commissionOutstanding,
+                payableToPartners   = payableOutstanding,
+                earnedRevenue       = earned,
+                // Costs
+                expenses = new
+                {
+                    vehicle     = vehicleExp,
+                    salaries,
+                    advertising = adSpend,
+                    business    = otherBiz,
+                    total       = totalExpenses,
+                    byCategory  = business.GroupBy(e => IsAd(e) ? "Advertising" : e.Category)
+                        .Select(g => new { category = g.Key, amount = g.Sum(e => e.Amount) })
+                        .OrderByDescending(x => x.amount),
+                },
+                advertising = new
+                {
+                    total      = adSpend,
+                    byPlatform = business.Where(IsAd).GroupBy(e => e.Platform ?? "Unspecified")
+                        .Select(g => new { platform = g.Key, amount = g.Sum(e => e.Amount) })
+                        .OrderByDescending(x => x.amount),
+                    byCampaign = business.Where(e => IsAd(e) && e.CampaignName != null)
+                        .GroupBy(e => new { e.CampaignName, e.Platform })
+                        .Select(g => new { campaign = g.Key.CampaignName, platform = g.Key.Platform, amount = g.Sum(e => e.Amount) })
+                        .OrderByDescending(x => x.amount),
+                    // Overall only: bookings aren't tagged with the campaign that produced them
+                    commissionPerRupeeSpent = adSpend > 0 ? Math.Round(commission / adSpend, 2) : (decimal?)null,
+                    earnedPerRupeeSpent     = adSpend > 0 ? Math.Round(earned / adSpend, 2) : (decimal?)null,
+                    adSpendShareOfEarned    = earned > 0 ? Math.Round(adSpend / earned * 100, 1) : (decimal?)null,
+                    isEstimate = true,
+                    note = "Overall ratio for the period. Bookings are not linked to the ad campaign that produced them, so per-campaign return can't be measured.",
+                },
+                netEarnings = earned - totalExpenses,
+                partners = partners.Select(p => new
+                {
+                    partnerId   = p.Key,
+                    name        = p.Value.Name,
+                    bookings    = p.Value.Bookings,
+                    commission  = p.Value.Commission,
+                    collected   = p.Value.Commission - p.Value.Outstanding,
+                    outstanding = p.Value.Outstanding,
+                    weOwe       = p.Value.WeOwe,
+                }).OrderByDescending(p => p.commission),
             });
         }
 
@@ -150,14 +297,26 @@ namespace TravelManagement.API.Controllers
 
             var salaryExpenses = salaryList.Sum(s => s.NetSalaey);
 
-            // Revenue
-            var revenue = (await OrgBookings.AsNoTracking()
+            // Revenue = earned (commission only on partner bookings); gross kept separate
+            var monthBookings = OrgBookings.AsNoTracking()
                 .Where(b => b.Status         != Status.Canceled
                          && b.travelDate.Month == m
-                         && b.travelDate.Year  == y)
-                .SumAsync(b => (decimal?)b.Amount)) ?? 0m;
+                         && b.travelDate.Year  == y);
+            var revenue = await EarnedAsync(monthBookings);
+            var grossBookingValue = (await monthBookings.SumAsync(b => (decimal?)b.Amount)) ?? 0m;
 
-            var totalExpenses = vehicleExpenses + salaryExpenses;
+            // Business / advertising spend (organisation-level, not per vehicle)
+            var monthStart = new DateOnly(y, m, 1);
+            var monthEnd   = monthStart.AddMonths(1).AddDays(-1);
+            var bizList = await _db.BusinessExpenses.AsNoTracking()
+                .Where(e => !e.IsDeleted && (!_tenant.ShouldFilter || e.OrgId == _tenant.OrgId)
+                         && e.ExpenseDate >= monthStart && e.ExpenseDate <= monthEnd)
+                .Select(e => new { e.Amount, e.Platform, e.Category })
+                .ToListAsync();
+            var businessExpenses = bizList.Sum(e => e.Amount);
+            var advertisingSpend = bizList.Where(e => e.Platform != null || e.Category == "Advertising").Sum(e => e.Amount);
+
+            var totalExpenses = vehicleExpenses + salaryExpenses + businessExpenses;
 
             // By-category breakdown
             var byCategory = vehicleExpList
@@ -215,12 +374,21 @@ namespace TravelManagement.API.Controllers
             var trendStartDate = DateOnly.FromDateTime(trendStart);
             var trendEndDate   = DateOnly.FromDateTime(trendEnd);
 
-            var trendBookings = await OrgBookings.AsNoTracking()
+            var trendScope = OrgBookings.AsNoTracking()
                 .Where(b => b.Status != Status.Canceled
                          && b.travelDate >= trendStartDate
-                         && b.travelDate <= trendEndDate)
+                         && b.travelDate <= trendEndDate);
+
+            var trendOwn = await trendScope
+                .Where(b => b.ExternalEmployeeId == null)
                 .GroupBy(b => new { b.travelDate.Year, b.travelDate.Month })
-                .Select(g => new { g.Key.Year, g.Key.Month, revenue = g.Sum(b => (decimal?)b.Amount) ?? 0m })
+                .Select(g => new { g.Key.Year, g.Key.Month, amount = g.Sum(b => (decimal?)b.Amount) ?? 0m })
+                .ToListAsync();
+
+            var trendCommission = await _db.ExternalEmployeeCashCollections
+                .Where(s => trendScope.Where(b => b.ExternalEmployeeId != null).Select(b => b.BookingId).Contains(s.BookingId))
+                .GroupBy(s => new { s.Booking.travelDate.Year, s.Booking.travelDate.Month })
+                .Select(g => new { g.Key.Year, g.Key.Month, amount = g.Sum(s => (decimal?)s.CommissionAmount) ?? 0m })
                 .ToListAsync();
 
             int trendStartYM = trendStart.Year * 100 + trendStart.Month;
@@ -230,6 +398,13 @@ namespace TravelManagement.API.Controllers
                 .Where(e => e.ExpenseDate >= trendStart
                          && e.ExpenseDate <= trendEnd
                          && e.CategoryType != Category.Salary)
+                .GroupBy(e => new { e.ExpenseDate.Year, e.ExpenseDate.Month })
+                .Select(g => new { g.Key.Year, g.Key.Month, amount = g.Sum(e => (decimal?)e.Amount) ?? 0m })
+                .ToListAsync();
+
+            var trendBiz = await _db.BusinessExpenses.AsNoTracking()
+                .Where(e => !e.IsDeleted && (!_tenant.ShouldFilter || e.OrgId == _tenant.OrgId)
+                         && e.ExpenseDate >= trendStartDate && e.ExpenseDate <= trendEndDate)
                 .GroupBy(e => new { e.ExpenseDate.Year, e.ExpenseDate.Month })
                 .Select(g => new { g.Key.Year, g.Key.Month, amount = g.Sum(e => (decimal?)e.Amount) ?? 0m })
                 .ToListAsync();
@@ -244,16 +419,18 @@ namespace TravelManagement.API.Controllers
             var monthlyTrend = Enumerable.Range(0, 6).Select(i =>
             {
                 var d  = new DateTime(y, m, 1).AddMonths(-5 + i);
-                var bk = trendBookings.FirstOrDefault(x => x.Year  == d.Year && x.Month == d.Month);
+                var own = trendOwn.FirstOrDefault(x => x.Year == d.Year && x.Month == d.Month)?.amount ?? 0m;
+                var com = trendCommission.FirstOrDefault(x => x.Year == d.Year && x.Month == d.Month)?.amount ?? 0m;
                 var ex = trendVehExp.FirstOrDefault(x  => x.Year  == d.Year && x.Month == d.Month);
                 var sl = trendSalaries.FirstOrDefault(x => x.Year == d.Year && x.Month == d.Month);
+                var bz = trendBiz.FirstOrDefault(x => x.Year == d.Year && x.Month == d.Month);
                 return new
                 {
                     month    = d.Month,
                     year     = d.Year,
                     label    = d.ToString("MMM yy"),
-                    revenue  = bk?.revenue ?? 0m,
-                    expenses = (ex?.amount ?? 0m) + (sl?.amount ?? 0m),
+                    revenue  = own + com,
+                    expenses = (ex?.amount ?? 0m) + (sl?.amount ?? 0m) + (bz?.amount ?? 0m),
                 };
             }).ToList<object>();
 
@@ -263,8 +440,11 @@ namespace TravelManagement.API.Controllers
                 year           = y,
                 vehicleExpenses,
                 salaryExpenses,
+                businessExpenses,
+                advertisingSpend,
                 totalExpenses,
                 revenue,
+                grossBookingValue,
                 netProfit      = revenue - totalExpenses,
                 byCategory,
                 salaryDetails,

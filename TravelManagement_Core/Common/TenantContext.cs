@@ -15,6 +15,9 @@ namespace TravelManagement.Core.Common
         /// <summary>User ID from the JWT NameIdentifier claim.</summary>
         public int UserId { get; }
 
+        /// <summary>Login name from the JWT Name claim (for audit trails).</summary>
+        public string? UserName { get; }
+
         /// <summary>Role string from the JWT Role claim.</summary>
         public string Role { get; }
 
@@ -27,6 +30,16 @@ namespace TravelManagement.Core.Common
         /// </summary>
         public bool ShouldFilter => OrgId > 0 && !IsSuperAdmin;
 
+        /// <summary>
+        /// True when a record owned by <paramref name="recordOrgId"/> may be read or changed
+        /// by the current caller. Use on every lookup by ID — list queries filter by org,
+        /// but a bare ID lookup would otherwise reach another organisation's data.
+        /// </summary>
+        public bool CanAccess(int recordOrgId) => !ShouldFilter || recordOrgId == OrgId;
+
+        /// <summary>Org to stamp on records created by the current caller.</summary>
+        public int WriteOrgId => OrgId > 0 ? OrgId : 1;
+
         public TenantContext(IHttpContextAccessor httpContextAccessor)
         {
             var claims = httpContextAccessor.HttpContext?.User;
@@ -36,6 +49,7 @@ namespace TravelManagement.Core.Common
                 UserId = int.TryParse(
                     claims.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var u) ? u : 0;
                 Role   = claims.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+                UserName = claims.FindFirst(ClaimTypes.Name)?.Value;
             }
         }
     }

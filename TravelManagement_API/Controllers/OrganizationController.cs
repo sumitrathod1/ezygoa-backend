@@ -156,6 +156,57 @@ namespace TravelManagement.API.Controllers
 
             return ApiOk(users);
         }
+
+        // ─────────────────────────────────────────────
+        // Linked organisations: admins can transfer bookings between linked orgs only
+        // GET    api/organization/links
+        // POST   api/organization/links        Body: { orgAId, orgBId }
+        // DELETE api/organization/links/{id}
+        // ─────────────────────────────────────────────
+        [HttpGet("links")]
+        public async Task<IActionResult> GetLinks()
+        {
+            var names = await _db.Organizations.AsNoTracking().ToDictionaryAsync(o => o.OrgId, o => o.Name);
+            var links = await _db.OrgLinks.AsNoTracking().OrderBy(l => l.OrgLinkId).ToListAsync();
+            return ApiOk(links.Select(l => new
+            {
+                l.OrgLinkId, l.OrgAId, l.OrgBId, l.CreatedAt,
+                OrgAName = names.GetValueOrDefault(l.OrgAId),
+                OrgBName = names.GetValueOrDefault(l.OrgBId),
+            }));
+        }
+
+        [HttpPost("links")]
+        public async Task<IActionResult> AddLink([FromBody] TravelManagement.Core.DTOs.OrgLinkDTO dto)
+        {
+            if (dto is null || dto.OrgAId <= 0 || dto.OrgBId <= 0)
+                return ApiBadRequest("Choose two organisations.");
+            if (dto.OrgAId == dto.OrgBId)
+                return ApiBadRequest("Choose two different organisations.");
+
+            var a = Math.Min(dto.OrgAId, dto.OrgBId);
+            var b = Math.Max(dto.OrgAId, dto.OrgBId);
+            var found = await _db.Organizations.CountAsync(o => o.OrgId == a || o.OrgId == b);
+            if (found != 2) return ApiNotFound("Organisation not found.");
+            if (await _db.OrgLinks.AnyAsync(l => l.OrgAId == a && l.OrgBId == b))
+                return ApiBadRequest("These organisations are already linked.");
+
+            var tenant = HttpContext.RequestServices.GetRequiredService<TenantContext>();
+            var link = new OrgLink { OrgAId = a, OrgBId = b, CreatedByUserId = tenant.UserId > 0 ? tenant.UserId : null };
+            _db.OrgLinks.Add(link);
+            await _db.SaveChangesAsync();
+            return ApiCreated(link, "Organisations linked. Their admins can now transfer bookings to each other.");
+        }
+
+        [HttpDelete("links/{id:int}")]
+        public async Task<IActionResult> RemoveLink(int id)
+        {
+            var link = await _db.OrgLinks.FindAsync(id);
+            if (link is null) return ApiNotFound("Link not found.");
+            _db.OrgLinks.Remove(link);
+            await _db.SaveChangesAsync();
+            return ApiOk("Link removed. Bookings already transferred stay where they are.");
+        }
     }
 
     // ─── DTOs (inline — no separate file needed) ────

@@ -48,6 +48,11 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+        // Never send password hashes / reset tokens to clients
+        options.JsonSerializerOptions.TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver
+        {
+            Modifiers = { SensitiveJsonFields.Hide }
+        };
     });
 
 // JWT Authentication
@@ -74,7 +79,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 var accessToken = context.Request.Query["access_token"];
                 var path = context.HttpContext.Request.Path;
-                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/BookingHub"))
+                // Both hubs authenticate via ?access_token= (WebSockets can't send headers).
+                // notificationHub was missing here, so its connections were anonymous.
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    (path.StartsWithSegments("/BookingHub") || path.StartsWithSegments("/notificationHub")))
                     context.Token = accessToken;
                 return Task.CompletedTask;
             }
@@ -105,24 +113,36 @@ builder.Services.AddSwaggerGen(c =>
 // Rate Limiting
 builder.Services.AddRateLimiter(options =>
 {
-    // Strict limit for auth endpoints (login, forgot-password, reset-password)
-    options.AddFixedWindowLimiter("auth", opt =>
-    {
-        opt.PermitLimit = 5;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit = 0;
-    });
+    // Limits are per client. They used to be single global buckets, so 5 logins per
+    // minute (and 100 API calls per minute) were shared by EVERY user of the platform —
+    // a handful of drivers signing in together would start getting 429s.
+    static string ClientIp(HttpContext ctx) =>
+        ctx.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()
+        ?? ctx.Connection.RemoteIpAddress?.ToString()
+        ?? "unknown";
 
-    // General API sliding window
-    options.AddSlidingWindowLimiter("api", opt =>
-    {
-        opt.PermitLimit = 100;
-        opt.Window = TimeSpan.FromMinutes(1);
-        opt.SegmentsPerWindow = 4;
-        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit = 10;
-    });
+    // Strict limit for auth endpoints (login, forgot-password, reset-password) — per IP
+    options.AddPolicy("auth", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ClientIp(ctx), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 0,
+        }));
+
+    // General API — per signed-in user, falling back to IP
+    options.AddPolicy("api", ctx => RateLimitPartition.GetSlidingWindowLimiter(
+        ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value is { } uid
+            ? $"user:{uid}" : $"ip:{ClientIp(ctx)}",
+        _ => new SlidingWindowRateLimiterOptions
+        {
+            PermitLimit = 300,
+            Window = TimeSpan.FromMinutes(1),
+            SegmentsPerWindow = 4,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = 10,
+        }));
 
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
@@ -145,8 +165,12 @@ builder.Services.AddCors(options =>
 // Database
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(
+// Audit trail for financial records (scoped: needs the request's user/org)
+builder.Services.AddScoped<AuditSaveChangesInterceptor>();
+
+builder.Services.AddDbContext<AppDbContext>((sp, options) =>
+    options.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>())
+           .UseNpgsql(
         builder.Configuration.GetConnectionString("DefaultConnection"),
         npgsql =>
         {
@@ -163,6 +187,7 @@ builder.Services.Configure<EmailSmtpSettings>(builder.Configuration.GetSection("
 
 // Repositories (DAL)
 builder.Services.AddScoped<IBookingRepository, BookingRepository>();
+builder.Services.AddScoped<IDispatchRepository, DispatchRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IVehicleRepository, VehicleRepository>();
 builder.Services.AddScoped<ITravelAgentsRepository, TravelAgentsRepository>();
@@ -208,6 +233,41 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"Migration error: {ex.Message}");
     }
 
+    // ── Keep ID sequences ahead of existing data ─────────────────────────
+    // Rows inserted with explicit IDs (imports, restores, HasData seeds) don't move the
+    // identity sequence, so the next normal insert reuses a taken ID and fails with
+    // 23505 "duplicate key ... PK_<Table>". Only ever moves a sequence forward.
+    try
+    {
+        db.Database.ExecuteSqlRaw(@"
+DO $$
+DECLARE r record; seq text; mx bigint; lv bigint; called boolean;
+BEGIN
+  FOR r IN
+    SELECT c.table_name, c.column_name
+    FROM information_schema.columns c
+    JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+    WHERE c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+      AND (c.is_identity = 'YES' OR c.column_default LIKE 'nextval(%')
+  LOOP
+    seq := pg_get_serial_sequence(format('%I.%I', 'public', r.table_name), r.column_name);
+    CONTINUE WHEN seq IS NULL;
+    EXECUTE format('SELECT COALESCE(MAX(%I), 0) FROM %I.%I', r.column_name, 'public', r.table_name) INTO mx;
+    EXECUTE format('SELECT last_value, is_called FROM %s', seq) INTO lv, called;
+    -- next value handed out would be lv (+1 if already called); make sure it is > mx
+    IF mx > 0 AND (CASE WHEN called THEN lv ELSE lv - 1 END) < mx THEN
+      PERFORM setval(seq, mx, true);
+      RAISE NOTICE 'Sequence % moved to %', seq, mx;
+    END IF;
+  END LOOP;
+END $$;");
+        Console.WriteLine("ID sequences checked");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Sequence check skipped: {ex.Message}");
+    }
+
     // ── Instagram image folder ──────────────────────────────────────────
     var igPath = app.Configuration["IG_IMAGES_PATH"] ?? "/data/ig";
     Directory.CreateDirectory(igPath);
@@ -228,21 +288,33 @@ using (var scope = app.Services.CreateScope())
     }
 
     // ── Seed SuperAdmin (OrgId = 0) ─────────────────────────────────────
-    if (!db.Users.Any(u => u.Role == Role.SuperAdmin))
+    // Guard must match the (UserName, OrgId) unique index, otherwise an existing
+    // 'superadmin' row with a different role made this insert fail with 23505 and
+    // crashed the API at startup.
+    if (!db.Users.Any(u => u.Role == Role.SuperAdmin
+                        || (u.UserName == "superadmin" && u.OrgId == 0)))
     {
-        var superPwd = builder.Configuration["SuperAdmin:Password"] ?? "SuperAdmin@123";
-        db.Users.Add(new User
+        try
         {
-            EmployeeName = "Super Admin",
-            UserName     = "superadmin",
-            Password     = PasswordHasher.HashPassword(superPwd),
-            Role         = Role.SuperAdmin,
-            OrgId        = 0,          // not tied to any org
-            Status       = true,
-            Number       = "0000000000",
-        });
-        db.SaveChanges();
-        Console.WriteLine("SuperAdmin created. Use the Change Password option after first login.");
+            var superPwd = builder.Configuration["SuperAdmin:Password"] ?? "SuperAdmin@123";
+            db.Users.Add(new User
+            {
+                EmployeeName = "Super Admin",
+                UserName     = "superadmin",
+                Password     = PasswordHasher.HashPassword(superPwd),
+                Role         = Role.SuperAdmin,
+                OrgId        = 0,          // not tied to any org
+                Status       = true,
+                Number       = "0000000000",
+            });
+            db.SaveChanges();
+            Console.WriteLine("SuperAdmin created. Use the Change Password option after first login.");
+        }
+        catch (DbUpdateException ex)
+        {
+            // Never take the whole API down over seeding
+            Console.WriteLine($"SuperAdmin seed skipped: {ex.InnerException?.Message ?? ex.Message}");
+        }
     }
 }
 
@@ -270,8 +342,8 @@ app.UseStaticFiles(new StaticFileOptions
 app.UseCors("SignalRCors");
 if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();      // after authentication so limits can be partitioned per user
 app.UseAuthorization();
 
 app.MapControllers();

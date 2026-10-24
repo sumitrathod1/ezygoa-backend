@@ -7,6 +7,7 @@ using TravelManagement.Core.Models;
 namespace TravelManagement.API.Controllers
 {
     [Route("api/[controller]")]
+    [Authorize(Roles = "Admin")]   // reads were anonymous and returned every org's charts
     [EnableRateLimiting("api")]
     public class RateChartController : ApiControllerBase
     {
@@ -34,7 +35,6 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpPost]
-        [Authorize]
         public async Task<IActionResult> Create([FromBody] RateChart chart)
         {
             if (chart is null) return ApiBadRequest("Rate chart data is required");
@@ -43,7 +43,6 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpPut("{id}")]
-        [Authorize]
         public async Task<IActionResult> Update(string id, [FromBody] RateChart chart)
         {
             if (chart is null) return ApiBadRequest("Rate chart data is required");
@@ -54,7 +53,6 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpDelete("{id}")]
-        [Authorize]
         public async Task<IActionResult> Delete(string id)
         {
             var deleted = await _service.DeleteAsync(id);

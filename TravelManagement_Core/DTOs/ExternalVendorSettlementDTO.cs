@@ -21,5 +21,16 @@ namespace TravelManagement.Core.DTOs
         public string SettlementDirection { get; set; } = string.Empty;
         public bool IsSettled { get; set; }
         public DateTime? SettledAt { get; set; }
+
+        public int? VendorId { get; set; }
+        /// <summary>Customer advance already collected by Admin for this booking.</summary>
+        public decimal AdvancePaid { get; set; }
+        /// <summary>Received from the vendor so far (VendorToOwner direction).</summary>
+        public decimal ReceivedFromVendor { get; set; }
+        /// <summary>Still owed by the vendor (VendorToOwner direction).</summary>
+        public decimal PendingReceivable { get; set; }
+        /// <summary>What is still open on this booking, in whichever direction is due.</summary>
+        public decimal Remaining { get; set; }
+        public string BookingStatus { get; set; } = string.Empty;
     }
 }

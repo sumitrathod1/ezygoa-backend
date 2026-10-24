@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using TravelManagement.BusinessLogicLayer.Services.Interface;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.DTOs;
 using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
@@ -10,19 +11,23 @@ using TravelManagement.DataAccessLayer.Entities;
 namespace TravelManagement.API.Controllers
 {
     [Route("api/[controller]")]
+    [Authorize]   // every read here was anonymous (vehicles, expenses, documents, EMI) across all orgs
     [EnableRateLimiting("api")]
     public class VehicleController : ApiControllerBase
     {
         private readonly IVehicleService _vehicleService;
         private readonly AppDbContext _context;
+        private readonly TenantContext _tenant;
 
-        public VehicleController(IVehicleService vehicleService, AppDbContext context)
+        public VehicleController(IVehicleService vehicleService, AppDbContext context, TenantContext tenant)
         {
             _vehicleService = vehicleService;
             _context = context;
+            _tenant  = tenant;
         }
 
         [HttpGet("GetAllVehicles")]
+        [Authorize(Roles = "Admin,Employee")]
         public async Task<IActionResult> GetAllVehicles()
         {
             var vehicles = await _vehicleService.GetAllVehiclesAsync();
@@ -30,6 +35,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("GetVehicle")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetVehicle(int id)
         {
             var vehicle = await _vehicleService.GetVehicleByIdAsync(id);
@@ -89,6 +95,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("GetAllexpence")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetAllExpenses()
         {
             var result = await _vehicleService.GetAllExpensesAsync();
@@ -96,6 +103,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("GetFilteredExpenses")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetFilteredExpenses(
             [FromQuery] int? vehicleId,
             [FromQuery] string? type,
@@ -107,6 +115,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("GetCombinedExpenses")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetCombinedExpenses(
             [FromQuery] int? vehicleId,
             [FromQuery] string? type,
@@ -118,6 +127,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("GetExpenseSummary")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetExpenseSummary(
             [FromQuery] int? vehicleId,
             [FromQuery] DateTime? startDate,
@@ -128,6 +138,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("GetExpenceBybId")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetExpenseByVehicleNumber(string vehicleNumber)
         {
             var result = await _vehicleService.GetExpenseByVehicleNumberAsync(vehicleNumber);
@@ -146,6 +157,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("GetAlldocuments")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetAllDocuments()
         {
             var result = await _vehicleService.GetAllDocumentsAsync();
@@ -164,6 +176,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("GetDocumentById")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetDocumentById(int id)
         {
             var document = await _vehicleService.GetDocumentByIdAsync(id);
@@ -189,6 +202,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("GetVehicleMaintenance")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetVehicleMaintenance()
         {
             var result = await _vehicleService.GetMaintenanceScheduleAsync();
@@ -196,11 +210,12 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("{id}/emi-statement")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetEmiStatement(int id)
         {
             var vehicle = await _context.Vehicles.AsNoTracking()
                 .FirstOrDefaultAsync(v => v.VehicleId == id);
-            if (vehicle == null) return ApiNotFound($"Vehicle {id} not found");
+            if (vehicle == null || !_tenant.CanAccess(vehicle.OrgId)) return ApiNotFound($"Vehicle {id} not found");
 
             var payments = await _context.vehicleExpences
                 .AsNoTracking()
@@ -238,10 +253,14 @@ namespace TravelManagement.API.Controllers
         {
             var targetDate = date ?? DateOnly.FromDateTime(DateTime.Today);
 
-            var allVehicles = await _context.Vehicles.ToListAsync();
+            // Was every organisation's vehicles and bookings
+            var allVehicles = await _context.Vehicles
+                .Where(v => !_tenant.ShouldFilter || v.OrgId == _tenant.OrgId)
+                .ToListAsync();
 
             var busyIds = await _context.Bookings
-                .Where(b => b.travelDate == targetDate && b.Status != Status.Canceled && b.VehicleId != null)
+                .Where(b => b.travelDate == targetDate && b.Status != Status.Canceled && b.VehicleId != null
+                         && (!_tenant.ShouldFilter || b.OrgId == _tenant.OrgId))
                 .Select(b => b.VehicleId!.Value)
                 .Distinct()
                 .ToListAsync();

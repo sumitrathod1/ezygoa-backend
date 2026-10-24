@@ -65,5 +65,9 @@ namespace TravelManagement.Core.Models
 
         // Self-drive rentals: completion is triggered by ReturnDate (handled in AUTO-01 n8n workflow)
         public DateOnly? ReturnDate { get; set; }
+
+        // Set when the booking was handed over from a linked organisation
+        public int? TransferredFromOrgId { get; set; }
+        public DateTime? TransferredAt { get; set; }
     }
 }

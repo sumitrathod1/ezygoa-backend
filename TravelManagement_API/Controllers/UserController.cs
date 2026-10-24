@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using TravelManagement.BusinessLogicLayer.Services.Interface;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.DTOs;
 using TravelManagement.Core.Models;
 
@@ -12,19 +13,24 @@ namespace TravelManagement.API.Controllers
     public class UserController : ApiControllerBase
     {
         private readonly IUserService _userService;
+        private readonly TenantContext _tenant;
 
-        public UserController(IUserService userService)
+        public UserController(IUserService userService, TenantContext tenant)
         {
             _userService = userService;
+            _tenant      = tenant;
         }
 
         [HttpPost("save-token")]
+        [Authorize]
         public async Task<IActionResult> SaveFcmToken(int userId, [FromBody] string fcmToken)
         {
             if (string.IsNullOrWhiteSpace(fcmToken))
                 return ApiBadRequest("FCM token cannot be empty");
 
-            await _userService.SaveFcmTokenAsync(userId, fcmToken);
+            // Was anonymous and trusted ?userId=, so anyone could redirect another
+            // user's push notifications. Always bind to the caller.
+            await _userService.SaveFcmTokenAsync(_tenant.UserId, fcmToken);
             return ApiOk("FCM token saved successfully");
         }
 
@@ -45,6 +51,7 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("get-user")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetUser(int id)
         {
             var user = await _userService.GetUserByIdAsync(id);
@@ -60,10 +67,11 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpPost("changePassword")]
+        [Authorize]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDTO dto)
         {
             if (dto is null) return ApiBadRequest("Password data is required");
-            await _userService.ChangePasswordAsync(dto);
+            await _userService.ChangePasswordAsync(dto, _tenant.UserId);
             return ApiOk("Password changed successfully");
         }
 
@@ -136,12 +144,13 @@ namespace TravelManagement.API.Controllers
         [HttpGet("ViewBookings")]
         public async Task<IActionResult> EmpBookings(int id)
         {
-            var bookings = await _userService.GetEmployeeBookingsAsync(id);
+            var bookings = await _userService.GetEmployeeBookingsAsync(_tenant.UserId);
             if (bookings is null || !bookings.Any()) return ApiNoContent();
             return ApiOk(bookings);
         }
 
         [HttpGet("employee-availability")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> GetEmployeeAvailability(int? employeeId = null)
         {
             var availability = await _userService.GetEmployeeAvailabilityAsync(employeeId);
@@ -151,15 +160,20 @@ namespace TravelManagement.API.Controllers
         }
 
         [HttpGet("User-BookingFilter")]
+        [Authorize(Roles = "Admin,Employee")]
         public async Task<IActionResult> GetFilteredBookings([FromQuery] UserFilterDTO userFilterDTO)
         {
+            if (_tenant.Role == "Employee") userFilterDTO.userId = _tenant.UserId;
             var result = await _userService.GetFilteredBookingsAsync(userFilterDTO);
             return ApiOk(result);
         }
 
         [HttpPost("RequestOvertime")]
+        [Authorize(Roles = "Admin,Employee")]
         public async Task<IActionResult> RequestOvertime([FromBody] OvertimeRequestDTO request)
         {
+            if (request is null) return ApiBadRequest("Overtime data is required");
+            if (_tenant.Role == "Employee") request.UserId = _tenant.UserId;
             var overtime = await _userService.RequestOvertimeAsync(request);
             return ApiCreated(new
             {

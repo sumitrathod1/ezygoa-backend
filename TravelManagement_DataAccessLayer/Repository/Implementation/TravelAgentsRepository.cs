@@ -25,7 +25,8 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<TravelAgent?> GetByIdAsync(int id)
         {
-            return await _context.TravelAgents.FindAsync(id);
+            var agent = await _context.TravelAgents.FindAsync(id);
+            return agent != null && _tenant.CanAccess(agent.OrgId) ? agent : null;
         }
 
         public async Task<List<TravelAgent>> GetAllAgentsAsync()
@@ -40,15 +41,23 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
             var allocations = await _context.BookingPaymentAllocations
                 .Where(a => agentIds.Contains(a.TravelAgentId ?? 0)
-                         && (a.PayerType == PayerType.Agent || a.PayerType == PayerType.Owner))
+                         && (a.PayerType == PayerType.Agent || a.PayerType == PayerType.Owner)
+                         && a.Booking.Status != Status.Canceled)
                 .ToListAsync();
+
+            // One grouped query instead of a COUNT per agent
+            var bookingCounts = await _context.Bookings
+                .Where(b => b.TravelAgentId != null && agentIds.Contains(b.TravelAgentId.Value)
+                         && b.Status != Status.Canceled
+                         && (!_tenant.ShouldFilter || b.OrgId == _tenant.OrgId))
+                .GroupBy(b => b.TravelAgentId!.Value)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.Key, x => x.Count);
 
             return agents.Select(agent =>
             {
                 var agentAllocs = allocations.Where(a => a.TravelAgentId == agent.AgentId);
-                int bookingCount = _context.Bookings
-                    .Count(b => b.TravelAgentId == agent.AgentId
-                             && (!_tenant.ShouldFilter || b.OrgId == _tenant.OrgId));
+                int bookingCount = bookingCounts.GetValueOrDefault(agent.AgentId, 0);
                 decimal totalAllocated = agentAllocs.Sum(a => a.AllocatedAmount);
                 decimal totalPaid      = agentAllocs.Sum(a => a.PaidAmount);
 
@@ -91,7 +100,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 Name              = dto.Name,
                 ContactNumber     = dto.ContactNumber,
                 type              = ParseAgentType(dto.AgentType),
-                Email             = dto.Email,
+                Email             = string.IsNullOrWhiteSpace(dto.Email) ? null : dto.Email.Trim(),
                 ContactPerson     = dto.ContactPerson,
                 WhatsApp          = dto.WhatsApp,
                 Address           = dto.Address,
@@ -111,12 +120,12 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<TravelAgent?> UpdateAgent(int id, AddAgentDTO dto)
         {
             var agent = await _context.TravelAgents.FindAsync(id);
-            if (agent == null) return null;
+            if (agent == null || !_tenant.CanAccess(agent.OrgId)) return null;
 
             agent.Name              = dto.Name;
             agent.ContactNumber     = dto.ContactNumber;
             agent.type              = ParseAgentType(dto.AgentType);
-            agent.Email             = dto.Email;
+            agent.Email             = string.IsNullOrWhiteSpace(dto.Email) ? null : dto.Email.Trim();
             agent.ContactPerson     = dto.ContactPerson;
             agent.WhatsApp          = dto.WhatsApp;
             agent.Address           = dto.Address;
@@ -133,55 +142,61 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<decimal> ApplyAgentPayment(AddAgentPaymentDto dto)
         {
-            var unpaidBookings = await _context.Bookings
-                .Where(b => b.TravelAgentId == dto.AgentId
-                         && (!_tenant.ShouldFilter || b.OrgId == _tenant.OrgId))
-                .Select(b => new { b.BookingId, b.travelDate })
-                .OrderBy(b => b.travelDate)
-                .ToListAsync();
+            if (dto.TotalPaidAmount <= 0)
+                throw new ArgumentException("Payment amount must be greater than zero.");
 
-            decimal remaining = dto.TotalPaidAmount;
-            decimal applied   = 0;
+            var agent = await GetByIdAsync(dto.AgentId)
+                ?? throw new KeyNotFoundException("Travel agent not found");
 
-            foreach (var booking in unpaidBookings)
+            var strategy = _context.Database.CreateExecutionStrategy();
+            return await strategy.ExecuteAsync(async () =>
             {
-                var allocation = await _context.BookingPaymentAllocations
-                    .FirstOrDefaultAsync(a => a.BookingId    == booking.BookingId
-                                           && a.TravelAgentId == dto.AgentId
-                                           && a.PayerType     == PayerType.Agent);
+                await using var tx = await _context.Database.BeginTransactionAsync();
 
-                if (allocation == null) continue;
+                // Oldest open allocation first. Matches Agent AND Owner allocations —
+                // bookings for TravelOwner partners are created as PayerType.Owner and
+                // were silently skipped, so their payments applied nothing.
+                var open = await _context.BookingPaymentAllocations
+                    .Include(a => a.Booking)
+                    .Where(a => a.TravelAgentId == agent.AgentId
+                             && (a.PayerType == PayerType.Agent || a.PayerType == PayerType.Owner)
+                             && a.AllocatedAmount > a.PaidAmount
+                             && a.Booking.Status != Status.Canceled
+                             && (!_tenant.ShouldFilter || a.Booking.OrgId == _tenant.OrgId))
+                    .OrderBy(a => a.Booking.travelDate).ThenBy(a => a.BookingId)
+                    .ToListAsync();
 
-                decimal pending = allocation.AllocatedAmount - allocation.PaidAmount;
-                if (pending <= 0 || remaining <= 0) continue;
+                decimal remaining = dto.TotalPaidAmount;
+                decimal applied   = 0;
 
-                decimal toApply = Math.Min(remaining, pending);
-
-                _context.Payments.Add(new Payments
+                foreach (var allocation in open)
                 {
-                    AmountPaid    = toApply,
-                    PaymentDate   = DateTime.Now,
-                    PaymentMethod = "Cash",
-                    BookingId     = booking.BookingId,
-                    TravelAgentId = dto.AgentId
-                });
+                    if (remaining <= 0) break;
+                    decimal toApply = Math.Min(remaining, allocation.AllocatedAmount - allocation.PaidAmount);
 
-                var allocationRecord = await _context.BookingPaymentAllocations
-                    .FirstOrDefaultAsync(a => a.BookingId == booking.BookingId && a.TravelAgentId == dto.AgentId);
-                if (allocationRecord != null)
-                    allocationRecord.PaidAmount += toApply;
+                    _context.Payments.Add(new Payments
+                    {
+                        AmountPaid    = toApply,
+                        PaymentDate   = DateTime.Now,
+                        PaymentMethod = "Cash",
+                        BookingId     = allocation.BookingId,
+                        TravelAgentId = agent.AgentId
+                    });
+                    allocation.PaidAmount += toApply;
 
-                remaining -= toApply;
-                applied   += toApply;
-            }
+                    remaining -= toApply;
+                    applied   += toApply;
+                }
 
-            await _context.SaveChangesAsync();
-            return applied;
+                await _context.SaveChangesAsync();
+                await tx.CommitAsync();
+                return applied;
+            });
         }
 
         public async Task<List<Booking>> GetAgentBookingsById(int agentId)
         {
-            var q = _context.Bookings.Where(b => b.TravelAgentId == agentId);
+            var q = _context.Bookings.Where(b => b.TravelAgentId == agentId && b.Status != Status.Canceled);
             if (_tenant.ShouldFilter)
                 q = q.Where(b => b.OrgId == _tenant.OrgId);
             return await q.OrderByDescending(b => b.travelDate).ToListAsync();

@@ -35,7 +35,17 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<Vehicle?> GetVehicleByIdAsync(int id)
         {
-            return await _context.Vehicles.FindAsync(id);
+            var vehicle = await _context.Vehicles.FindAsync(id);
+            return vehicle != null && _tenant.CanAccess(vehicle.OrgId) ? vehicle : null;
+        }
+
+        /// <summary>An expense/document may only point at a vehicle of the caller's org.</summary>
+        private async Task EnsureOwnVehicleAsync(int? vehicleId)
+        {
+            if (vehicleId is null or <= 0) return;
+            var v = await _context.Vehicles.AsNoTracking().FirstOrDefaultAsync(x => x.VehicleId == vehicleId);
+            if (v == null || !_tenant.CanAccess(v.OrgId))
+                throw new KeyNotFoundException($"Vehicle {vehicleId} not found");
         }
 
         public async Task<bool> VehicleNumberExistsAsync(string vehicleNumber)
@@ -63,6 +73,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<Vehicle> UpdateVechicle(Vehicle vehicle)
         {
             var existing = await _context.Vehicles.FirstOrDefaultAsync(x => x.VehicleId == vehicle.VehicleId);
+            if (existing != null && !_tenant.CanAccess(existing.OrgId)) existing = null;
             if (existing != null)
             {
                 existing.VehicleNumber = vehicle.VehicleNumber;
@@ -99,6 +110,8 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<VehicleExpence> AddExpense(AddVehicleExpenceDTO dto)
         {
+            if (dto.Amount <= 0) throw new ArgumentException("Expense amount must be greater than zero.");
+            await EnsureOwnVehicleAsync(dto.VehicleID);
             var expense = new VehicleExpence
             {
                 ExpenseDate  = dto.ExpenseDate == default ? DateTime.Now : dto.ExpenseDate,
@@ -116,7 +129,9 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<VehicleExpence?> UpdateExpenseAsync(int id, AddVehicleExpenceDTO dto)
         {
             var expense = await _context.vehicleExpences.FindAsync(id);
-            if (expense == null) return null;
+            if (expense == null || !_tenant.CanAccess(expense.OrgId)) return null;
+            if (dto.Amount <= 0) throw new ArgumentException("Expense amount must be greater than zero.");
+            await EnsureOwnVehicleAsync(dto.VehicleID);
             expense.ExpenseDate  = dto.ExpenseDate == default ? expense.ExpenseDate : dto.ExpenseDate;
             expense.Amount       = dto.Amount;
             expense.CategoryType = ParseCategory(dto.CategoryType);
@@ -129,7 +144,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<bool> DeleteExpenseAsync(int id)
         {
             var expense = await _context.vehicleExpences.FindAsync(id);
-            if (expense == null) return false;
+            if (expense == null || !_tenant.CanAccess(expense.OrgId)) return false;
             _context.vehicleExpences.Remove(expense);
             await _context.SaveChangesAsync();
             return true;
@@ -274,13 +289,17 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<VehicleExpence?> GetExpenseByVehicleNumberAsync(string vehicleNumber)
         {
-            return await _context.vehicleExpences
+            return await OrgExpenses
                 .Include(x => x.Vehicle)
                 .FirstOrDefaultAsync(y => y.Vehicle!.VehicleNumber == vehicleNumber);
         }
 
         public async Task<Documents> AddDocumentAsync(Documents document)
         {
+            // Bound straight from the request body: OrgId defaulted to 1, so every other
+            // org's documents were saved into EzyGoa's vault.
+            document.OrgId = _tenant.WriteOrgId;
+            await EnsureOwnVehicleAsync(document.VehicleID);
             await _context.AddAsync(document);
             await _context.SaveChangesAsync();
             return document;
@@ -297,7 +316,8 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<Documents?> UpdateDocumentAsync(Documents document)
         {
             var existing = await _context.Documents.FirstOrDefaultAsync(x => x.DocumentID == document.DocumentID);
-            if (existing == null) return null;
+            if (existing == null || !_tenant.CanAccess(existing.OrgId)) return null;
+            await EnsureOwnVehicleAsync(document.VehicleID);
 
             existing.Title = document.Title;
             existing.Description = document.Description;
@@ -318,13 +338,14 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
         public async Task<Documents?> GetDocumentByIdAsync(int id)
         {
-            return await _context.Documents.Include(v => v.Vehicle).FirstOrDefaultAsync(d => d.DocumentID == id);
+            var doc = await _context.Documents.Include(v => v.Vehicle).FirstOrDefaultAsync(d => d.DocumentID == id);
+            return doc != null && _tenant.CanAccess(doc.OrgId) ? doc : null;
         }
 
         public async Task<bool> DeleteDocumentAsync(int id)
         {
             var doc = await _context.Documents.FindAsync(id);
-            if (doc == null) return false;
+            if (doc == null || !_tenant.CanAccess(doc.OrgId)) return false;
             _context.Documents.Remove(doc);
             await _context.SaveChangesAsync();
             return true;
@@ -333,7 +354,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         public async Task<VehicleMaintenanceShedule?> AddNewVechicleMaintenance(VechicleMaintenanceDTO dto)
         {
             var exists = await _context.Vehicles.FindAsync(dto.VehicleID);
-            if (exists == null) return null;
+            if (exists == null || !_tenant.CanAccess(exists.OrgId)) return null;
 
             MaintenanceType mType = dto.maintenanceType switch
             {

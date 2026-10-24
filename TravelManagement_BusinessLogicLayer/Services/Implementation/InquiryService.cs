@@ -52,7 +52,8 @@ namespace TravelManagement.BusinessLogicLayer.Services.Implementation
             if (!Enum.TryParse<VechileType>(inquiry.VehicleName, true, out var vehicleType))
                 vehicleType = VechileType.Notspecified;
 
-            int vehicleId = await _inquiryRepo.GetVehicleIdByTypeAsync(vehicleType, inquiry.VehicleName);
+            // A matching vehicle of the enquiry's own org, or none (assign it on the booking)
+            int? vehicleId = await _inquiryRepo.GetVehicleIdByTypeAsync(vehicleType, inquiry.VehicleName, inquiry.OrgId);
 
             var dto = new NewBookiingDTO
             {
@@ -68,11 +69,14 @@ namespace TravelManagement.BusinessLogicLayer.Services.Implementation
                 BookingStatus = "Pending",
                 Amount = 0,
                 Payment = "Admin",
-                UserId = 16
+                // No driver yet. This was hardcoded to user #16, so every confirmed
+                // enquiry was assigned to one specific (possibly other-org) driver.
+                UserId = null,
             };
 
             var booking = await _bookingRepo.CreateBooking(dto);
             inquiry.IsConfirmed = true;
+            inquiry.ConvertedBookingId = booking.BookingId;
             await _inquiryRepo.UpdateInquiryAsync(inquiry);
             return booking;
         }

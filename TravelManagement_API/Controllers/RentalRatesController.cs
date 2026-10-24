@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
 
@@ -13,7 +14,16 @@ namespace TravelManagement.API.Controllers
     {
         private readonly AppDbContext _db;
 
-        public RentalRatesController(AppDbContext db) => _db = db;
+        private readonly TenantContext _tenant;
+
+        public RentalRatesController(AppDbContext db, TenantContext tenant)
+        {
+            _db     = db;
+            _tenant = tenant;
+        }
+
+        // Was hardcoded to OrgId 1, so every organisation read and wrote EzyGoa's data
+        private int Org => _tenant.WriteOrgId;
 
         // GET api/rentalrates
         [HttpGet]
@@ -22,7 +32,7 @@ namespace TravelManagement.API.Controllers
             var query = _db.RentalRates
                 .AsNoTracking()
                 .Include(r => r.Vehicle)
-                .Where(r => r.OrgId == 1);
+                .Where(r => r.OrgId == Org);
 
             if (!includeInactive) query = query.Where(r => r.IsActive);
 
@@ -40,7 +50,7 @@ namespace TravelManagement.API.Controllers
             var rate = await _db.RentalRates
                 .AsNoTracking()
                 .Include(r => r.Vehicle)
-                .FirstOrDefaultAsync(r => r.RentalRateId == id && r.OrgId == 1);
+                .FirstOrDefaultAsync(r => r.RentalRateId == id && r.OrgId == Org);
 
             return rate is null
                 ? ApiNotFound($"Rental rate {id} not found")
@@ -57,12 +67,12 @@ namespace TravelManagement.API.Controllers
             if (dto.SecurityDeposit < 0)
                 return ApiBadRequest("SecurityDeposit cannot be negative");
 
-            bool vehicleExists = await _db.Vehicles.AnyAsync(v => v.VehicleId == dto.VehicleId && v.OrgId == 1);
+            bool vehicleExists = await _db.Vehicles.AnyAsync(v => v.VehicleId == dto.VehicleId && v.OrgId == Org);
             if (!vehicleExists)
                 return ApiBadRequest($"Vehicle {dto.VehicleId} not found");
 
             bool duplicate = await _db.RentalRates
-                .AnyAsync(r => r.VehicleId == dto.VehicleId && r.OrgId == 1);
+                .AnyAsync(r => r.VehicleId == dto.VehicleId && r.OrgId == Org);
             if (duplicate)
                 return ApiBadRequest("A rental rate for this vehicle already exists");
 
@@ -76,7 +86,7 @@ namespace TravelManagement.API.Controllers
                 KmPerDay        = dto.KmPerDay,
                 ExtraKmRate     = dto.ExtraKmRate,
                 IsActive        = dto.IsActive ?? true,
-                OrgId           = 1,
+                OrgId           = Org,
             };
 
             _db.RentalRates.Add(rate);
@@ -91,7 +101,7 @@ namespace TravelManagement.API.Controllers
         public async Task<IActionResult> Update(int id, [FromBody] RentalRateUpsertDTO dto)
         {
             var rate = await _db.RentalRates
-                .FirstOrDefaultAsync(r => r.RentalRateId == id && r.OrgId == 1);
+                .FirstOrDefaultAsync(r => r.RentalRateId == id && r.OrgId == Org);
 
             if (rate is null) return ApiNotFound($"Rental rate {id} not found");
 

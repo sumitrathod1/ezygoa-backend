@@ -2,6 +2,7 @@ using FirebaseAdmin.Messaging;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using TravelManagement.API.Hubs;
+using TravelManagement.Core.Models;
 using TravelManagement.DataAccessLayer.Entities;
 using TravelManagement.DataAccessLayer.Repository.Interface;
 using AppNotification = TravelManagement.Core.Models.Notification;
@@ -19,12 +20,13 @@ namespace TravelManagement.API.Infrastructure
             _hub = hub;
         }
 
-        public async Task CreateAsync(string message, int? userId = null)
+        public async Task CreateAsync(string message, int orgId, int? userId = null)
         {
             var notif = new AppNotification
             {
                 Message = message,
                 UserId = userId,
+                OrgId = orgId,
                 CreatedAt = DateTime.Now,
                 IsRead = false
             };
@@ -32,7 +34,8 @@ namespace TravelManagement.API.Infrastructure
             await _context.Notifications.AddAsync(notif);
             await _context.SaveChangesAsync();
 
-            await _hub.Clients.All.SendAsync("ReceiveNotification", new
+            // Was Clients.All — every organisation saw every enquiry
+            await _hub.Clients.Group(HubGroups.Org(orgId)).SendAsync("ReceiveNotification", new
             {
                 notificationId = notif.NotificationId,
                 message = notif.Message,
@@ -41,10 +44,12 @@ namespace TravelManagement.API.Infrastructure
             });
         }
 
-        public async Task SendPushNotificationAsync(string title, string body)
+        public async Task SendPushNotificationAsync(string title, string body, int orgId)
         {
+            // Was every user with a token — drivers and other organisations got customer enquiries
             var tokens = await _context.Users
-                .Where(u => !string.IsNullOrEmpty(u.FcmToken))
+                .Where(u => !string.IsNullOrEmpty(u.FcmToken)
+                         && u.OrgId == orgId && u.Role == Role.Admin && u.Status && !u.IsDeleted)
                 .Select(u => u.FcmToken)
                 .ToListAsync();
 
