@@ -30,6 +30,7 @@ namespace TravelManagement.DataAccessLayer.Entities
             [typeof(TravelAgent)]                    = "TravelAgent",
             [typeof(ExternalEmployee)]               = "Partner",
             [typeof(Salary)]                         = "Salary",
+            [typeof(Trip)]                           = "Trip",
         };
 
         // Bookkeeping columns that add noise without meaning
@@ -191,6 +192,7 @@ namespace TravelManagement.DataAccessLayer.Entities
                 TravelAgent t                      => $"Agent '{t.Name}'",
                 ExternalEmployee x                 => $"Partner '{x.externalEmployeeName}'",
                 Salary sal                         => $"Salary #{sal.SalaryId} ({sal.Month}/{sal.Year})",
+                Trip trip                          => $"Trip #{trip.TripId}",
                 _                                  => log.EntityType,
             };
 

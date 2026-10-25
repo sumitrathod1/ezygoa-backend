@@ -40,7 +40,7 @@ namespace TravelManagement.BusinessLogicLayer.Services.Implementation
         public Task<SettlementHistoryDTO> GetSettlementHistoryAsync(int bookingId) =>
             _bookingRepo.GetSettlementHistoryAsync(bookingId);
 
-        public Task<PartnerStatementData> GetPartnerStatementAsync(int partnerId, DateOnly? from, DateOnly? to, int? bookingId, bool maskCustomer, bool showFare) =>
-            _bookingRepo.GetPartnerStatementAsync(partnerId, from, to, bookingId, maskCustomer, showFare);
+        public Task<PartnerStatementData> GetPartnerStatementAsync(int partnerId, DateOnly? from, DateOnly? to, int? bookingId, bool maskCustomer, bool showFare, bool onlyOpen = false, int? customerId = null) =>
+            _bookingRepo.GetPartnerStatementAsync(partnerId, from, to, bookingId, maskCustomer, showFare, onlyOpen, customerId);
     }
 }

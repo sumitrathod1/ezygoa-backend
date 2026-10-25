@@ -13,6 +13,9 @@ namespace TravelManagement.Core.Models
         Notspecified,     // 5
         AirportPickup,    // 6
         SelfDriveRental,  // 7 — do NOT insert above this; existing rows depend on 0-6
+        NorthGoaSightseeing, // 8 — always add new types at the END (stored as numbers)
+        SouthGoaSightseeing, // 9
+        DudhsagarTour,       // 10
     }
 
     public enum Status
@@ -65,6 +68,27 @@ namespace TravelManagement.Core.Models
 
         // Self-drive rentals: completion is triggered by ReturnDate (handled in AUTO-01 n8n workflow)
         public DateOnly? ReturnDate { get; set; }
+
+        /// <summary>
+        /// Sightseeing / full day that ends somewhere other than back at the hotel —
+        /// "North Goa Sightseeing + drop at Mopa Airport". Null = returns as usual.
+        /// </summary>
+        public string? EndDrop { get; set; }
+
+        /// <summary>Tour that starts with a pickup — "Mopa Airport pickup + Dudhsagar Tour". Null = from the hotel.</summary>
+        public string? StartPickup { get; set; }
+
+        /// <summary>Full Day package: 8 (8 hr / 80 km) or 12 (12 hr / 120 km). Null for other types.</summary>
+        public int? FullDayHours { get; set; }
+
+        // Self-drive rentals: time the car comes back, and the refundable deposit taken
+        public TimeOnly? ReturnTime { get; set; }
+        public decimal? SecurityDeposit { get; set; }
+
+        // Multi-day package / visit this booking belongs to (null = standalone booking)
+        public int? TripId { get; set; }
+        [System.Text.Json.Serialization.JsonIgnore]
+        public Trip? Trip { get; set; }
 
         // Set when the booking was handed over from a linked organisation
         public int? TransferredFromOrgId { get; set; }

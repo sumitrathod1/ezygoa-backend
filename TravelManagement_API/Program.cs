@@ -41,6 +41,16 @@ catch (Exception ex)
     Console.WriteLine($"Firebase initialization failed: {ex.Message}");
 }
 
+// Compress JSON responses (calendar, booking lists, logos) — much smaller on mobile data
+builder.Services.AddResponseCompression(o =>
+{
+    o.EnableForHttps = true;
+    o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProvider>();
+    o.Providers.Add<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProvider>();
+});
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.BrotliCompressionProviderOptions>(o => o.Level = System.IO.Compression.CompressionLevel.Fastest);
+builder.Services.Configure<Microsoft.AspNetCore.ResponseCompression.GzipCompressionProviderOptions>(o => o.Level = System.IO.Compression.CompressionLevel.Fastest);
+
 // Controllers + JSON enum support
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -188,6 +198,8 @@ builder.Services.Configure<EmailSmtpSettings>(builder.Configuration.GetSection("
 // Repositories (DAL)
 builder.Services.AddScoped<IBookingRepository, BookingRepository>();
 builder.Services.AddScoped<IDispatchRepository, DispatchRepository>();
+builder.Services.AddScoped<ITripRepository, TripRepository>();
+builder.Services.AddScoped<IInvoiceRepository, InvoiceRepository>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IVehicleRepository, VehicleRepository>();
 builder.Services.AddScoped<ITravelAgentsRepository, TravelAgentsRepository>();
@@ -320,6 +332,8 @@ END $$;");
 
 // Global exception handler must be first
 app.UseGlobalExceptionHandler();
+
+app.UseResponseCompression();
 
 // Request logging
 app.UseRequestLogging();

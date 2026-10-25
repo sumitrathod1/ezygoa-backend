@@ -7,6 +7,8 @@ namespace TravelManagement.Core.DTOs
         public string? OrgPhone { get; set; }
         public string? OrgEmail { get; set; }
         public string? OrgAddress { get; set; }
+        /// <summary>Organisation logo as a data URL (null = no logo)</summary>
+        public string? OrgLogo { get; set; }
 
         public int PartnerId { get; set; }
         public string PartnerName { get; set; } = string.Empty;
@@ -16,6 +18,11 @@ namespace TravelManagement.Core.DTOs
         public DateOnly? To { get; set; }
         public int? BookingId { get; set; }
         public bool ShowFare { get; set; } = true;
+        /// <summary>Only bookings that still have money to settle.</summary>
+        public bool OnlyOpen { get; set; }
+        /// <summary>Set when the statement covers one customer's bookings only.</summary>
+        public int? CustomerId { get; set; }
+        public string? CustomerName { get; set; }
         public DateTime GeneratedAt { get; set; }
 
         public List<PartnerStatementLine> Lines { get; set; } = new();

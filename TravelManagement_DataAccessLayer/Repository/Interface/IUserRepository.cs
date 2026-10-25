@@ -6,6 +6,8 @@ namespace TravelManagement.DataAccessLayer.Repository.Interface
     public interface IUserRepository
     {
         Task<User?> FindByUsernameAsync(string username);
+        /// <summary>How many days a sign-in lasts (set by the super admin).</summary>
+        Task<int> GetSessionDaysAsync();
         Task<List<User>> FindLoginCandidatesAsync(string username);
         Task<User?> GetByIdAsync(int id);
         Task<List<User>> GetAllActiveUsersAsync();

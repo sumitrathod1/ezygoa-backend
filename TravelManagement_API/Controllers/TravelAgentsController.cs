@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.RateLimiting;
 using TravelManagement.BusinessLogicLayer.Services.Interface;
 using TravelManagement.Core.Common;
 using TravelManagement.Core.DTOs;
+using TravelManagement.DataAccessLayer.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace TravelManagement.API.Controllers
 {
@@ -14,10 +16,12 @@ namespace TravelManagement.API.Controllers
     public class TravelAgentsController : ApiControllerBase
     {
         private readonly ITravelAgentsService _travelAgentsService;
+        private readonly AppDbContext _db;
 
-        public TravelAgentsController(ITravelAgentsService travelAgentsService)
+        public TravelAgentsController(ITravelAgentsService travelAgentsService, AppDbContext db)
         {
             _travelAgentsService = travelAgentsService;
+            _db = db;
         }
 
         [HttpPut("{id}")]
@@ -83,7 +87,9 @@ namespace TravelManagement.API.Controllers
                 return ApiNotFound("No bookings found for this agent");
 
             var agentName = bookings.First().TravelAgent?.Name ?? "Unknown Agent";
-            var pdfBytes = BookingPdfGenerator.Generate(bookings, agentName, fromDate, toDate);
+            var orgId = bookings.First().OrgId;
+            var org = await _db.Organizations.AsNoTracking().FirstOrDefaultAsync(o => o.OrgId == orgId);
+            var pdfBytes = BookingPdfGenerator.Generate(bookings, agentName, fromDate, toDate, org?.Name, org?.LogoUrl);
 
             string fileName = fromDate.HasValue && toDate.HasValue
                 ? $"Agent_{agentId}_BookingsReport_{fromDate:ddMMyyyy}_{toDate:ddMMyyyy}.pdf"

@@ -16,6 +16,6 @@ namespace TravelManagement.DataAccessLayer.Repository.Interface
         Task SettleSettlementAsync(SettleSettlementDTO dto);
         Task ReverseSettlementPaymentAsync(int settlementPaymentId, string? reason);
         Task<SettlementHistoryDTO> GetSettlementHistoryAsync(int bookingId);
-        Task<PartnerStatementData> GetPartnerStatementAsync(int partnerId, DateOnly? from, DateOnly? to, int? bookingId, bool maskCustomer, bool showFare);
+        Task<PartnerStatementData> GetPartnerStatementAsync(int partnerId, DateOnly? from, DateOnly? to, int? bookingId, bool maskCustomer, bool showFare, bool onlyOpen = false, int? customerId = null);
     }
 }

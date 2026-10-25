@@ -2,6 +2,7 @@ using System.Globalization;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
+using TravelManagement.Core.Common;
 using TravelManagement.Core.DTOs;
 
 namespace TravelManagement.API.Reports
@@ -26,14 +27,33 @@ namespace TravelManagement.API.Reports
 
         public static IDocument Build(PartnerStatementData s)
         {
-            string period = s.BookingId.HasValue ? $"Booking #{s.BookingId}"
+            string period = s.CustomerId.HasValue ? $"All bookings of {s.CustomerName}"
+                : s.BookingId.HasValue ? $"Booking #{s.BookingId}"
                 : s.From.HasValue && s.To.HasValue ? $"{D(s.From.Value)} – {D(s.To.Value)}"
                 : s.From.HasValue ? $"From {D(s.From.Value)}"
                 : s.To.HasValue ? $"Up to {D(s.To.Value)}"
                 : "All bookings";
+            if (s.OnlyOpen) period += " · only bookings not fully paid";
+
+            // One customer (all their bookings) or one booking: say plainly where the money stands
+            bool forCustomer = s.CustomerId.HasValue || s.BookingId.HasValue;
+            var live = s.Lines.Where(l => !l.Cancelled).ToList();
+            decimal custDue = live.Sum(l => l.Due), custPaid = live.Sum(l => l.Settled), custLeft = live.Sum(l => l.Remaining);
+            string? custStatus = !forCustomer ? null
+                : live.Count == 0 ? "All trips cancelled"
+                : custDue == 0 ? "Nothing to pay"
+                : custLeft == 0 ? "Fully paid"
+                : custPaid > 0 ? $"Part paid: {Rs(custPaid)} of {Rs(custDue)} given"
+                : "Not paid yet";
+            string? custLine = s.CustomerId.HasValue
+                ? $"Customer: {s.CustomerName}  ·  {live.Count} booking{(live.Count == 1 ? "" : "s")}"
+                : s.BookingId.HasValue && s.Lines.Count > 0
+                    ? $"Customer: {s.Lines[0].Customer}  ·  Booking #{s.Lines[0].BookingId}  ·  {D(s.Lines[0].TravelDate)}"
+                    : null;
 
             decimal balance = s.PartnerStillOwes - s.WeStillOwe;
             string org = string.IsNullOrWhiteSpace(s.OrgName) ? "us" : s.OrgName;
+            var logo = PdfLogo.Load(s.OrgLogo);
 
             return Document.Create(doc => doc.Page(page =>
             {
@@ -44,7 +64,12 @@ namespace TravelManagement.API.Reports
                 // ── Header ───────────────────────────────────────────────────
                 page.Header().PaddingBottom(10).BorderBottom(2).BorderColor(Brand).PaddingBottom(8).Row(row =>
                 {
-                    row.RelativeItem().Column(c =>
+                    if (logo != null)
+                    {
+                        PdfLogo.Tile(row.ConstantItem(54).AlignMiddle(), logo, 54);
+                        row.ConstantItem(10);
+                    }
+                    row.RelativeItem().AlignMiddle().Column(c =>
                     {
                         c.Item().Text(s.OrgName).FontSize(20).Bold().FontColor(Brand);
                         var contact = string.Join("  ·  ", new[] { s.OrgPhone, s.OrgEmail }.Where(x => !string.IsNullOrWhiteSpace(x)));
@@ -71,6 +96,12 @@ namespace TravelManagement.API.Reports
                             c.Item().Text("Statement for").FontColor(Muted);
                             c.Item().Text(s.PartnerName).FontSize(13).Bold();
                             if (!string.IsNullOrWhiteSpace(s.PartnerNumber)) c.Item().Text("Phone: " + s.PartnerNumber);
+                            if (forCustomer && custLine != null)
+                            {
+                                c.Item().PaddingTop(6).Text(custLine);
+                                c.Item().Text(custStatus!).Bold()
+                                    .FontColor(custLeft == 0 ? Get : custPaid > 0 ? "#B45309" : Give);
+                            }
                         });
                         r.ConstantItem(300).AlignRight().AlignMiddle().Column(c =>
                         {

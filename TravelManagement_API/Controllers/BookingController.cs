@@ -48,7 +48,9 @@ namespace TravelManagement.API.Controllers
                 .Include(b => b.Customer)
                 .Include(b => b.Vehicle)
                 .Include(b => b.ExternalEmployee)
-                .Where(b => b.travelDate == date && b.Status != Status.Canceled);
+                .Include(b => b.Trip)
+                .Where(b => b.travelDate == date && b.Status != Status.Canceled
+                         && b.ExternalEmployeeId == null);   // partner bookings are shown in "Extra", not the calendar
 
             if (_tenant.ShouldFilter)
                 bookingQuery = bookingQuery.Where(b => b.OrgId == _tenant.OrgId);
@@ -96,6 +98,14 @@ namespace TravelManagement.API.Controllers
                 b.CreatedByUserId,
                 CreatedByName = b.CreatedBy != null ? b.CreatedBy.EmployeeName : null,
                 b.ReturnDate,
+                b.TripId,
+                b.EndDrop,
+                b.StartPickup,
+                b.FullDayHours,
+                b.ReturnTime,
+                b.SecurityDeposit,
+                TripStayName     = b.Trip != null ? b.Trip.StayName : null,
+                TripStayMapsLink = b.Trip != null ? b.Trip.StayMapsLink : null,
                 AdvancePaid = payDict.GetValueOrDefault(b.BookingId, 0),
                 Balance     = b.Amount - payDict.GetValueOrDefault(b.BookingId, 0),
                 CustomerWillPay  = allocDict.TryGetValue(b.BookingId, out var a1) ? a1.CustomerWillPay : 0,
@@ -217,16 +227,19 @@ namespace TravelManagement.API.Controllers
             [FromQuery] DateOnly? to = null,
             [FromQuery] int? bookingId = null,
             [FromQuery] bool maskCustomer = true,
-            [FromQuery] bool showFare = true)
+            [FromQuery] bool showFare = true,
+            [FromQuery] bool onlyOpen = false,
+            [FromQuery] int? customerId = null)
         {
             if (from.HasValue && to.HasValue && from > to)
                 return ApiBadRequest("'From' date must be before 'To' date");
 
-            var data = await _bookingService.GetPartnerStatementAsync(vendorId, from, to, bookingId, maskCustomer, showFare);
+            var data = await _bookingService.GetPartnerStatementAsync(vendorId, from, to, bookingId, maskCustomer, showFare, onlyOpen, customerId);
             var pdf  = PartnerStatementPdf.Generate(data);
 
             var safeName = new string(data.PartnerName.Where(char.IsLetterOrDigit).ToArray());
-            var suffix = bookingId.HasValue ? $"Booking{bookingId}"
+            var suffix = customerId.HasValue ? $"Customer{customerId}"
+                : bookingId.HasValue ? $"Booking{bookingId}"
                 : from.HasValue || to.HasValue ? $"{from:yyyyMMdd}-{to:yyyyMMdd}" : "All";
             return ApiFile(pdf, "application/pdf", $"Statement_{(safeName.Length > 0 ? safeName : "Partner")}_{suffix}.pdf");
         }

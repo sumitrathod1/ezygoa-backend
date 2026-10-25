@@ -123,11 +123,17 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.Property<int>("CustomerID")
                         .HasColumnType("integer");
 
+                    b.Property<string>("EndDrop")
+                        .HasColumnType("text");
+
                     b.Property<int?>("ExternalEmployeeId")
                         .HasColumnType("integer");
 
                     b.Property<string>("From")
                         .HasColumnType("text");
+
+                    b.Property<int?>("FullDayHours")
+                        .HasColumnType("integer");
 
                     b.Property<int>("OrgId")
                         .HasColumnType("integer");
@@ -143,6 +149,16 @@ namespace TravelManagement_DataAccessLayer.Migrations
 
                     b.Property<DateOnly?>("ReturnDate")
                         .HasColumnType("date");
+
+                    b.Property<TimeOnly?>("ReturnTime")
+                        .HasColumnType("time without time zone");
+
+                    b.Property<decimal?>("SecurityDeposit")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("StartPickup")
+                        .HasColumnType("text");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
@@ -162,6 +178,9 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.Property<TimeOnly?>("Traveltime")
                         .HasColumnType("time without time zone");
 
+                    b.Property<int?>("TripId")
+                        .HasColumnType("integer");
+
                     b.Property<int?>("Userid")
                         .HasColumnType("integer");
 
@@ -180,6 +199,8 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.HasIndex("ExternalEmployeeId");
 
                     b.HasIndex("TravelAgentId");
+
+                    b.HasIndex("TripId");
 
                     b.HasIndex("Userid");
 
@@ -586,6 +607,39 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.HasIndex("Status", "QueueId");
 
                     b.ToTable("InstagramQueues");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.InvoiceSettings", b =>
+                {
+                    b.Property<int>("InvoiceSettingsId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("InvoiceSettingsId"));
+
+                    b.Property<string>("ExtraRatesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("NightChargesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("OrgId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OtherTerms")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("InvoiceSettingsId");
+
+                    b.HasIndex("OrgId")
+                        .IsUnique();
+
+                    b.ToTable("InvoiceSettings");
                 });
 
             modelBuilder.Entity("TravelManagement.Core.Models.MarketingCampaign", b =>
@@ -1533,6 +1587,29 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.ToTable("SettlementPayments");
                 });
 
+            modelBuilder.Entity("TravelManagement.Core.Models.SystemSettings", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("SessionDays")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("SystemSettings");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            SessionDays = 30
+                        });
+                });
+
             modelBuilder.Entity("TravelManagement.Core.Models.TravelAgent", b =>
                 {
                     b.Property<int>("AgentId")
@@ -1592,6 +1669,59 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.HasKey("AgentId");
 
                     b.ToTable("TravelAgents");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.Trip", b =>
+                {
+                    b.Property<int>("TripId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("TripId"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CustomerId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<int>("OrgId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Pax")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.Property<double?>("StayLat")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("StayLng")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("StayMapsLink")
+                        .HasColumnType("text");
+
+                    b.Property<string>("StayName")
+                        .HasColumnType("text");
+
+                    b.HasKey("TripId");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("OrgId", "CustomerId", "EndDate");
+
+                    b.ToTable("Trips");
                 });
 
             modelBuilder.Entity("TravelManagement.Core.Models.User", b =>
@@ -1719,6 +1849,9 @@ namespace TravelManagement_DataAccessLayer.Migrations
 
                     b.Property<int>("PaidEMIs")
                         .HasColumnType("integer");
+
+                    b.Property<string>("RateCategory")
+                        .HasColumnType("text");
 
                     b.Property<DateOnly>("RegistrationDate")
                         .HasColumnType("date");
@@ -1848,6 +1981,11 @@ namespace TravelManagement_DataAccessLayer.Migrations
                         .WithMany()
                         .HasForeignKey("TravelAgentId");
 
+                    b.HasOne("TravelManagement.Core.Models.Trip", "Trip")
+                        .WithMany("Bookings")
+                        .HasForeignKey("TripId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("TravelManagement.Core.Models.User", "user")
                         .WithMany()
                         .HasForeignKey("Userid")
@@ -1864,6 +2002,8 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.Navigation("ExternalEmployee");
 
                     b.Navigation("TravelAgent");
+
+                    b.Navigation("Trip");
 
                     b.Navigation("Vehicle");
 
@@ -2052,6 +2192,17 @@ namespace TravelManagement_DataAccessLayer.Migrations
                     b.Navigation("Settlement");
                 });
 
+            modelBuilder.Entity("TravelManagement.Core.Models.Trip", b =>
+                {
+                    b.HasOne("TravelManagement.Core.Models.Customers", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+                });
+
             modelBuilder.Entity("TravelManagement.Core.Models.VehicleExpence", b =>
                 {
                     b.HasOne("TravelManagement.Core.Models.Vehicle", "Vehicle")
@@ -2070,6 +2221,11 @@ namespace TravelManagement_DataAccessLayer.Migrations
                         .IsRequired();
 
                     b.Navigation("Vehicle");
+                });
+
+            modelBuilder.Entity("TravelManagement.Core.Models.Trip", b =>
+                {
+                    b.Navigation("Bookings");
                 });
 #pragma warning restore 612, 618
         }

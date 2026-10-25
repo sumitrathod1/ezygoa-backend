@@ -11,6 +11,7 @@ namespace TravelManagement.Core.DTOs
         public string From { get; set; } = string.Empty;
         public string To { get; set; } = string.Empty;
         public string CustomerName { get; set; } = string.Empty;
+        public int CustomerId { get; set; }
         public decimal BookingAmount { get; set; }
         public decimal Commission { get; set; }
         public CashCollectedBy CashCollectedBy { get; set; }

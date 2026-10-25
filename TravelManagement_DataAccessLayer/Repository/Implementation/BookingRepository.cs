@@ -116,7 +116,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                     b.Userid, b.user, b.BookingType, b.Traveltime, b.Status, b.Amount,
                     b.Pax, b.Assigned, b.CustomerID, b.Customer, b.ExternalEmployeeId,
                     b.ExternalEmployee, b.Payment, b.TravelAgentId, b.TravelAgent,
-                    b.isValidAssignment, b.ReturnDate,
+                    b.isValidAssignment, b.ReturnDate, b.TripId, b.EndDrop, b.StartPickup, b.FullDayHours, b.ReturnTime, b.SecurityDeposit,
                     b.CreatedByUserId,
                     CreatedByName   = b.CreatedBy != null ? b.CreatedBy.EmployeeName : null,
                     AdvancePaid     = pay?.TotalPaid ?? 0,
@@ -252,10 +252,18 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             });
         }
 
+        /// <summary>Swagger's default text value, sent by tools for fields left empty.</summary>
+        private static bool IsPlaceholder(string? value) =>
+            value != null && value.Trim().Equals("string", StringComparison.OrdinalIgnoreCase);
+
         private async Task<Booking> CreateBookingCore(NewBookiingDTO dto)
         {
             int? nullVehicleId = dto.VehicleId > 0 ? dto.VehicleId : null;
             int? nullUserId = dto.UserId > 0 ? dto.UserId : null;
+            // Swagger / scripts send "string" for empty fields; that once turned 398 own
+            // trips into partner bookings named "string" (earning ₹0) — treat it as no partner
+            if (IsPlaceholder(dto.ExternalEmployeeNumber)) dto.ExternalEmployeeNumber = null;
+            if (IsPlaceholder(dto.ExternalEmployee)) dto.ExternalEmployee = null;
             bool isExternalBooking = !string.IsNullOrWhiteSpace(dto.ExternalEmployeeNumber);
 
             if (dto.Amount < 0)
@@ -336,6 +344,8 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             }
 
             var customer = await UpdateCustomer(dto);
+            var oldTripId = existingBooking?.TripId;
+            var trip = await ResolveTripAsync(dto, customer, existingBooking, isPackage);
 
             if (isPackage)
             {
@@ -362,6 +372,10 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                         TravelAgentId = agent?.AgentId,
                         OrgId         = _tenant.WriteOrgId,
                         CreatedByUserId = _tenant.UserId > 0 ? _tenant.UserId : null,
+                        Trip          = trip,
+                        EndDrop       = Clean(dayBooking.EndDrop),
+                        StartPickup   = Clean(dayBooking.StartPickup),
+                        FullDayHours  = dayBType == BookingType.FullDay ? FullDayPackage(dayBooking.FullDayHours) : null,
                     };
                     AssignmentRules.SyncStatus(booking);
                     await _context.Bookings.AddAsync(booking);
@@ -371,6 +385,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
 
                 await UpsertAllocationsAsync(createdBookings.First().BookingId, customer.CustomersId, dto, agent);
                 await _context.SaveChangesAsync();
+                await SyncTripDatesAsync(trip?.TripId);
                 return createdBookings.First();
             }
 
@@ -410,6 +425,13 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             target.Payment            = paymentSource;
             target.ExternalEmployeeId = externalEmp?.externalEmployeeID;
             target.TravelAgentId      = agent?.AgentId;
+            target.Trip               = trip;
+            target.EndDrop            = Clean(dto.EndDrop);
+            target.StartPickup        = Clean(dto.StartPickup);
+            target.FullDayHours       = bookingType == BookingType.FullDay ? FullDayPackage(dto.FullDayHours) : null;
+            target.ReturnTime         = bookingType == BookingType.SelfDriveRental ? dto.ReturnTime : null;
+            target.SecurityDeposit    = bookingType == BookingType.SelfDriveRental && dto.SecurityDeposit > 0 ? dto.SecurityDeposit : null;
+            if (trip == null) target.TripId = null;
             // No explicit status from the client: Pending / Assigned follows the driver and vehicle
             if (string.IsNullOrWhiteSpace(dto.BookingStatus)) AssignmentRules.SyncStatus(target);
 
@@ -430,7 +452,87 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 await RemoveUntouchedSettlementAsync(target.BookingId);
             }
 
+            await SyncTripDatesAsync(target.TripId);
+            if (oldTripId != null && oldTripId != target.TripId) await SyncTripDatesAsync(oldTripId);
+
             return target;
+        }
+
+        /// <summary>
+        /// Which trip this save belongs to:
+        ///  - the trip the client chose (must be this org's and this customer's),
+        ///  - else the trip the edited booking already has (dropped if the customer was changed),
+        ///  - else a new trip for a package, or for a single booking that comes with a hotel.
+        /// The hotel sent with the save updates the trip, so it is entered only once.
+        /// </summary>
+        private async Task<Trip?> ResolveTripAsync(NewBookiingDTO dto, Customers customer, Booking? existing, bool isPackage)
+        {
+            Trip? trip = null;
+            if (dto.TripId is > 0)
+            {
+                trip = await _context.Trips.FirstOrDefaultAsync(t => t.TripId == dto.TripId);
+                if (trip == null || !_tenant.CanAccess(trip.OrgId))
+                    throw new ArgumentException("The selected trip was not found.");
+                if (trip.CustomerId != customer.CustomersId)
+                    throw new ArgumentException("That trip belongs to a different customer.");
+            }
+            else if (existing?.TripId != null)
+            {
+                trip = await _context.Trips.FirstOrDefaultAsync(t => t.TripId == existing.TripId);
+                if (trip != null && trip.CustomerId != customer.CustomersId) trip = null;
+            }
+
+            var stayName = Clean(dto.Stay?.Name);
+            if (trip == null && (isPackage || stayName != null))
+            {
+                var first = isPackage ? dto.DayWiseBookings!.Min(d => d.TravelDate) : dto.BookingDate;
+                var last  = isPackage ? dto.DayWiseBookings!.Max(d => d.TravelDate) : dto.BookingDate;
+                trip = new Trip
+                {
+                    OrgId           = _tenant.WriteOrgId,
+                    CustomerId      = customer.CustomersId,
+                    StartDate       = first,
+                    EndDate         = last,
+                    CreatedByUserId = _tenant.UserId > 0 ? _tenant.UserId : null,
+                };
+                _context.Trips.Add(trip);
+            }
+
+            if (trip != null)
+            {
+                if (stayName != null)
+                {
+                    trip.StayName     = stayName;
+                    trip.StayLat      = dto.Stay!.Lat;
+                    trip.StayLng      = dto.Stay.Lng;
+                    trip.StayMapsLink = Clean(dto.Stay.MapsLink);
+                }
+                if (dto.Pax > 0) trip.Pax = dto.Pax;
+            }
+            return trip;
+        }
+
+        /// <summary>Trip start / end follow its (not cancelled) bookings; an emptied trip is removed.</summary>
+        private Task SyncTripDatesAsync(int? tripId) => SyncTripDatesAsync(_context, tripId);
+
+        internal static async Task SyncTripDatesAsync(AppDbContext _context, int? tripId)
+        {
+            if (tripId == null) return;
+            var trip = await _context.Trips.FirstOrDefaultAsync(t => t.TripId == tripId);
+            if (trip == null) return;
+            var dates = await _context.Bookings
+                .Where(b => b.TripId == tripId && b.Status != Status.Canceled)
+                .Select(b => b.travelDate).ToListAsync();
+            if (dates.Count == 0)
+            {
+                if (!await _context.Bookings.AnyAsync(b => b.TripId == tripId)) _context.Trips.Remove(trip);
+            }
+            else
+            {
+                trip.StartDate = dates.Min();
+                trip.EndDate   = dates.Max();
+            }
+            await _context.SaveChangesAsync();
         }
 
         /// <summary>
@@ -518,17 +620,45 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             if (filterDTO.UserId.HasValue) query = query.Where(b => b.Userid == filterDTO.UserId.Value);
             if (filterDTO.BookingType.HasValue) query = query.Where(b => b.BookingType == filterDTO.BookingType.Value);
             if (filterDTO.TravelTime.HasValue) query = query.Where(b => b.Traveltime == filterDTO.TravelTime.Value);
+            if (filterDTO.CreatedByUserId.HasValue) query = query.Where(b => b.CreatedByUserId == filterDTO.CreatedByUserId.Value);
+            if (filterDTO.FromOrgId.HasValue) query = query.Where(b => b.TransferredFromOrgId == filterDTO.FromOrgId.Value);
+            else if (filterDTO.TransferredOnly == true) query = query.Where(b => b.TransferredFromOrgId != null);
 
             var pageSize   = Math.Clamp(filterDTO.PageSize, 1, 200);
             var pageNumber = Math.Max(1, filterDTO.PageNumber);
 
-            var totalCount = await query.CountAsync();
-            query = query.OrderByDescending(b => b.travelDate);
+            // Totals over EVERY matching booking, not just the page on screen
+            var byStatus = await query
+                .GroupBy(b => b.Status)
+                .Select(g => new { Status = g.Key, Count = g.Count(), Amount = g.Sum(x => x.Amount) })
+                .ToListAsync();
+            var totalCount = byStatus.Sum(s => s.Count);
+            int CountOf(Status s) => byStatus.Where(x => x.Status == s).Sum(x => x.Count);
 
+            // Tie-breakers keep paging stable (same-day bookings otherwise jump between pages)
             var bookings = await query
+                .OrderByDescending(b => b.travelDate)
+                .ThenByDescending(b => b.Traveltime)
+                .ThenByDescending(b => b.BookingId)
                 .Skip((pageNumber - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
+
+            // Dropdown choices come from all of this organisation's bookings, so they don't shrink as filters change
+            var addedBy = await OrgBookings
+                .Where(b => b.CreatedByUserId != null)
+                .GroupBy(b => new { b.CreatedByUserId, b.CreatedBy!.EmployeeName })
+                .Select(g => new { UserId = g.Key.CreatedByUserId!.Value, Name = g.Key.EmployeeName, Count = g.Count() })
+                .OrderBy(x => x.Name)
+                .ToListAsync();
+            var fromOrgCounts = await OrgBookings
+                .Where(b => b.TransferredFromOrgId != null)
+                .GroupBy(b => b.TransferredFromOrgId!.Value)
+                .Select(g => new { OrgId = g.Key, Count = g.Count() })
+                .ToListAsync();
+            var orgIds = fromOrgCounts.Select(x => x.OrgId).ToList();
+            var orgNames = await _context.Organizations.AsNoTracking()
+                .Where(o => orgIds.Contains(o.OrgId)).ToDictionaryAsync(o => o.OrgId, o => o.Name);
 
             return new
             {
@@ -544,8 +674,30 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                     UserId = b.user?.userId,
                     b.Payment,
                     b.CreatedByUserId,
-                    CreatedByName = b.CreatedBy != null ? b.CreatedBy.EmployeeName : null
+                    CreatedByName = b.CreatedBy != null ? b.CreatedBy.EmployeeName : null,
+                    b.EndDrop, b.StartPickup, b.FullDayHours, b.TripId,
+                    b.ExternalEmployeeId,
+                    PartnerName = b.ExternalEmployee?.externalEmployeeName,
+                    b.TransferredFromOrgId,
+                    TransferredFromOrgName = b.TransferredFromOrgId != null ? orgNames.GetValueOrDefault(b.TransferredFromOrgId.Value) : null,
                 }),
+                Summary = new
+                {
+                    Count     = totalCount,
+                    // Cancelled trips earn nothing, so they are left out of revenue
+                    Revenue   = byStatus.Where(s => s.Status != Status.Canceled).Sum(s => s.Amount),
+                    Pending   = CountOf(Status.Pending),
+                    Assigned  = CountOf(Status.Assigned),
+                    Completed = CountOf(Status.Completed),
+                    Cancelled = CountOf(Status.Canceled),
+                },
+                Filters = new
+                {
+                    AddedBy  = addedBy,
+                    FromOrgs = fromOrgCounts
+                        .Select(x => new { x.OrgId, Name = orgNames.GetValueOrDefault(x.OrgId) ?? $"Org {x.OrgId}", x.Count })
+                        .OrderBy(x => x.Name),
+                },
                 Pagination = new
                 {
                     PageNumber = pageNumber,
@@ -597,6 +749,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                     From                = s.Booking.From ?? string.Empty,
                     To                  = s.Booking.To ?? string.Empty,
                     CustomerName        = s.Booking.Customer?.CustomerName ?? string.Empty,
+                    CustomerId          = s.Booking.CustomerID,
                     BookingAmount       = s.BookingAmount,
                     Commission          = s.CommissionAmount,
                     CashCollectedBy     = s.CashCollectedBy,
@@ -840,7 +993,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         /// every payment recorded against those bookings. Only this partner, only this org.
         /// </summary>
         public async Task<PartnerStatementData> GetPartnerStatementAsync(
-            int partnerId, DateOnly? from, DateOnly? to, int? bookingId, bool maskCustomer, bool showFare)
+            int partnerId, DateOnly? from, DateOnly? to, int? bookingId, bool maskCustomer, bool showFare, bool onlyOpen = false, int? customerId = null)
         {
             var partner = await _context.ExternalEmployees.AsNoTracking()
                 .FirstOrDefaultAsync(e => e.externalEmployeeID == partnerId);
@@ -853,12 +1006,16 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 .Include(s => s.Booking).ThenInclude(b => b.Customer)
                 .Where(s => s.ExternalEmployeeId == partnerId && s.Booking.OrgId == partner.OrgId);
             if (bookingId.HasValue) q = q.Where(s => s.BookingId == bookingId.Value);
+            // One customer: every booking of that customer with this partner
+            if (customerId.HasValue) q = q.Where(s => s.Booking.CustomerID == customerId.Value);
             if (from.HasValue) q = q.Where(s => s.Booking.travelDate >= from.Value);
             if (to.HasValue) q = q.Where(s => s.Booking.travelDate <= to.Value);
 
             var settlements = await q.OrderBy(s => s.Booking.travelDate).ThenBy(s => s.BookingId).ToListAsync();
             if (bookingId.HasValue && settlements.Count == 0)
                 throw new KeyNotFoundException("That booking is not assigned to this partner");
+            if (customerId.HasValue && settlements.Count == 0)
+                throw new KeyNotFoundException("This customer has no bookings with this partner");
 
             var ids = settlements.Select(s => s.BookingId).ToList();
             var advances = await _context.BookingPaymentAllocations.AsNoTracking()
@@ -874,11 +1031,17 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 OrgPhone      = org?.Phone,
                 OrgEmail      = org?.Email,
                 OrgAddress    = org?.Address,
+                OrgLogo       = org?.LogoUrl,
                 PartnerId     = partner.externalEmployeeID,
                 PartnerName   = partner.externalEmployeeName ?? "",
                 PartnerNumber = partner.externalEmployeeNumber ?? "",
                 From = from, To = to, BookingId = bookingId,
                 ShowFare      = showFare,
+                OnlyOpen      = onlyOpen && !bookingId.HasValue,
+                CustomerId    = customerId,
+                CustomerName  = customerId.HasValue
+                    ? (maskCustomer ? MaskName(settlements[0].Booking.Customer?.CustomerName) : settlements[0].Booking.Customer?.CustomerName)
+                    : null,
                 GeneratedAt   = DateTime.Now,
                 Payments      = payments,
             };
@@ -893,12 +1056,15 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 var due     = Math.Abs(net);
                 var settled = SettledSoFar(s, due);
                 var remaining = cancelled ? 0 : due - settled;
+                // "Only not fully paid": skip settled and cancelled bookings
+                if (onlyOpen && !bookingId.HasValue && (cancelled || remaining == 0)) continue;
 
                 data.Lines.Add(new PartnerStatementLine
                 {
                     BookingId  = s.BookingId,
                     TravelDate = s.Booking.travelDate,
-                    Route      = $"{s.Booking.From} → {s.Booking.To}",
+                    Route      = $"{s.Booking.From} → {s.Booking.To}" + (string.IsNullOrWhiteSpace(s.Booking.EndDrop) ? "" : $" (+ drop at {s.Booking.EndDrop})")
+                               + (string.IsNullOrWhiteSpace(s.Booking.StartPickup) ? "" : $" (pickup at {s.Booking.StartPickup})"),
                     Customer   = maskCustomer ? MaskName(s.Booking.Customer?.CustomerName) : (s.Booking.Customer?.CustomerName ?? ""),
                     Fare       = s.BookingAmount,
                     Commission = s.CommissionAmount,
@@ -921,7 +1087,10 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 else         { data.PaidToPartner += settled;       data.WeStillOwe       += remaining; }
             }
 
-            var itemised = payments.Sum(p => p.EntryType == nameof(SettlementEntryType.Reversal) ? -p.Amount : p.Amount);
+            // Payments only for the bookings that made it onto the statement
+            var shown = data.Lines.Select(l => l.BookingId).ToHashSet();
+            data.Payments = payments.Where(p => shown.Contains(p.BookingId)).ToList();
+            var itemised = data.Payments.Sum(p => p.EntryType == nameof(SettlementEntryType.Reversal) ? -p.Amount : p.Amount);
             data.EarlierUnitemised = Math.Max(0, data.ReceivedFromPartner + data.PaidToPartner - itemised);
             return data;
         }
@@ -935,6 +1104,9 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         }
 
         private static string? Clean(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+
+        /// <summary>Only the two Full Day packages exist: 8 hr / 80 km and 12 hr / 120 km.</summary>
+        private static int? FullDayPackage(int? hours) => hours is 8 or 12 ? hours : null;
 
         internal static string DigitsOf(string? v) => new string((v ?? "").Where(char.IsDigit).ToArray());
 

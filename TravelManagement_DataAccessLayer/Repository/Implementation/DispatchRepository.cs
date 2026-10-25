@@ -24,18 +24,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
         }
 
         /// <summary>Today in India — the server may run on UTC, which is still "yesterday" until 5:30 am IST.</summary>
-        private static DateOnly Today
-        {
-            get
-            {
-                try
-                {
-                    var ist = TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "India Standard Time" : "Asia/Kolkata");
-                    return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, ist));
-                }
-                catch (TimeZoneNotFoundException) { return DateOnly.FromDateTime(DateTime.Today); }
-            }
-        }
+        private static DateOnly Today => AssignmentRules.TodayInIndia();
 
         /// <summary>Past bookings still missing a driver / vehicle are shown for this many days.</summary>
         private const int MissedDays = 14;
@@ -75,7 +64,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 .Select(b => new
                 {
                     b.BookingId, b.travelDate, b.ReturnDate, b.Traveltime, b.From, b.To, b.Pax,
-                    b.BookingType, b.Status, b.Amount, b.VehicleId, b.Userid, b.TransferredFromOrgId,
+                    b.BookingType, b.Status, b.Amount, b.VehicleId, b.Userid, b.TransferredFromOrgId, b.TripId, b.EndDrop, b.StartPickup, b.FullDayHours,
                     CustomerName   = b.Customer != null ? b.Customer.CustomerName : null,
                     CustomerNumber = b.Customer != null ? b.Customer.CustomerNumber : null,
                     VehicleName    = b.Vehicle != null ? b.Vehicle.VehicleName : null,
@@ -88,8 +77,18 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             var orgNames = await _context.Organizations.AsNoTracking()
                 .Where(o => fromOrgIds.Contains(o.OrgId)).ToDictionaryAsync(o => o.OrgId, o => o.Name);
 
+            // "Day 2 of 4" for trip bookings, counted over the whole trip (not just this range)
+            var tripIds = rows.Where(r => r.TripId != null).Select(r => r.TripId!.Value).Distinct().ToList();
+            var tripDays = (await _context.Bookings.AsNoTracking()
+                    .Where(b => b.TripId != null && tripIds.Contains(b.TripId.Value) && b.Status != Status.Canceled)
+                    .Select(b => new { TripId = b.TripId!.Value, b.BookingId, b.travelDate, b.Traveltime })
+                    .ToListAsync())
+                .GroupBy(x => x.TripId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(x => x.travelDate).ThenBy(x => x.Traveltime).Select(x => x.BookingId).ToList());
+
             var bookings = rows.Select(r =>
             {
+                var days = r.TripId != null ? tripDays.GetValueOrDefault(r.TripId.Value) : null;
                 var needsDriver = r.BookingType != BookingType.SelfDriveRental;
                 var done = r.VehicleId != null && (r.Userid != null || !needsDriver);
                 return new
@@ -108,6 +107,12 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                     IsOpen = r.Status != Status.Completed,
                     IsMissed = !done && r.Status != Status.Completed && r.travelDate < today,
                     TransferredFrom = r.TransferredFromOrgId != null ? orgNames.GetValueOrDefault(r.TransferredFromOrgId.Value) : null,
+                    r.TripId,
+                    r.EndDrop,
+                    r.StartPickup,
+                    r.FullDayHours,
+                    TripDay  = days == null ? (int?)null : days.IndexOf(r.BookingId) + 1,
+                    TripDays = days?.Count,
                 };
             }).ToList();
 
@@ -381,6 +386,9 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             booking.TravelAgentId = null;
             booking.VehicleId = null;
             booking.Userid = null;
+            // The trip (hotel, other days) stays with the old organisation
+            var oldTripId = booking.TripId;
+            booking.TripId = null;
 
             // The customer's advance stays with the booking so the driver collects the right balance
             var custAlloc = await _context.BookingPaymentAllocations
@@ -414,6 +422,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             });
 
             await _context.SaveChangesAsync();
+            await BookingRepository.SyncTripDatesAsync(_context, oldTripId);
 
             return new TransferBookingResult
             {

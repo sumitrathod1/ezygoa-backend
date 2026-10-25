@@ -7,8 +7,10 @@ namespace TravelManagement.Core.Common
 {
     public class BookingPdfGenerator
     {
-        public static byte[] Generate(List<Booking> bookings, string agentName, DateOnly? fromDate, DateOnly? toDate)
+        public static byte[] Generate(List<Booking> bookings, string agentName, DateOnly? fromDate, DateOnly? toDate,
+            string? orgName = null, string? orgLogo = null)
         {
+            var logo = PdfLogo.Load(orgLogo);
             var document = Document.Create(container =>
             {
                 container.Page(page =>
@@ -18,8 +20,22 @@ namespace TravelManagement.Core.Common
                         ? $"({fromDate:dd-MM-yyyy} to {toDate:dd-MM-yyyy})"
                         : "(All Bookings)";
 
-                    page.Header().Text($"Booking Report for Agent: {agentName}\n{dateRangeText}")
-                        .SemiBold().FontSize(18).FontColor(Colors.Blue.Medium).AlignCenter();
+                    page.Header().PaddingBottom(10).Row(row =>
+                    {
+                        // The organisation's own logo and name
+                        if (logo != null)
+                        {
+                            PdfLogo.Tile(row.ConstantItem(50).AlignMiddle(), logo, 50);
+                            row.ConstantItem(10);
+                        }
+                        row.RelativeItem().AlignMiddle().Column(c =>
+                        {
+                            if (!string.IsNullOrWhiteSpace(orgName))
+                                c.Item().Text(orgName).Bold().FontSize(16).FontColor("#4B2AAD");
+                            c.Item().Text($"Booking Report for Agent: {agentName}").SemiBold().FontSize(13).FontColor(Colors.Blue.Medium);
+                            c.Item().Text(dateRangeText).FontSize(10).FontColor(Colors.Grey.Darken1);
+                        });
+                    });
 
                     page.Content().Column(col =>
                     {

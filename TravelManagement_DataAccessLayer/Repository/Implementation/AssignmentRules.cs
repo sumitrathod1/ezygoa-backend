@@ -26,6 +26,17 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             b.Status = done ? Status.Assigned : Status.Pending;
         }
 
+        /// <summary>Today in India — the server may run on UTC, which is still "yesterday" until 5:30 am IST.</summary>
+        public static DateOnly TodayInIndia()
+        {
+            try
+            {
+                var ist = TimeZoneInfo.FindSystemTimeZoneById(OperatingSystem.IsWindows() ? "India Standard Time" : "Asia/Kolkata");
+                return DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, ist));
+            }
+            catch (TimeZoneNotFoundException) { return DateOnly.FromDateTime(DateTime.Today); }
+        }
+
         public static bool IsRentalPlaceholder(string? vehicleNumber) =>
             vehicleNumber != null && vehicleNumber.StartsWith(RentalPlaceholderPrefix, StringComparison.OrdinalIgnoreCase);
     }

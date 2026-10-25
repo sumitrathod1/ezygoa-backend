@@ -16,7 +16,8 @@ namespace TravelManagement.Core.Common
             _config = config;
         }
 
-        public string GenerateToken(User user)
+        /// <param name="sessionDays">How long the sign-in lasts (super admin setting); null = JwtSettings:DurationInMinutes</param>
+        public string GenerateToken(User user, int? sessionDays = null)
         {
             var claims = new[]
             {
@@ -33,7 +34,9 @@ namespace TravelManagement.Core.Common
                 issuer: _config["JwtSettings:Issuer"],
                 audience: _config["JwtSettings:Audience"],
                 claims: claims,
-                expires: DateTime.Now.AddMinutes(Convert.ToDouble(_config["JwtSettings:DurationInMinutes"])),
+                expires: sessionDays is > 0
+                    ? DateTime.UtcNow.AddDays(sessionDays.Value)
+                    : DateTime.UtcNow.AddMinutes(Convert.ToDouble(_config["JwtSettings:DurationInMinutes"])),
                 signingCredentials: creds);
 
             return new JwtSecurityTokenHandler().WriteToken(token);

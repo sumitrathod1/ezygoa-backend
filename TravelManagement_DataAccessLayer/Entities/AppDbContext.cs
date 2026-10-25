@@ -37,11 +37,15 @@ namespace TravelManagement.DataAccessLayer.Entities
         public DbSet<AuditLog> AuditLogs { get; set; }
         public DbSet<BusinessExpense> BusinessExpenses { get; set; }
         public DbSet<OrgLink> OrgLinks { get; set; }
+        public DbSet<Trip> Trips { get; set; }
+        public DbSet<InvoiceSettings> InvoiceSettings { get; set; }
+        public DbSet<SystemSettings> SystemSettings { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             // Decimal precision (provider-agnostic — works for both SQL Server and PostgreSQL)
             modelBuilder.Entity<Booking>().Property(b => b.Amount).HasPrecision(18, 2);
+            modelBuilder.Entity<Booking>().Property(b => b.SecurityDeposit).HasPrecision(18, 2);
             modelBuilder.Entity<Salary>().Property(s => s.BaseSalay).HasPrecision(18, 2);
             modelBuilder.Entity<Salary>().Property(s => s.Deduction).HasPrecision(18, 2);
             modelBuilder.Entity<Salary>().Property(s => s.Overtimepay).HasPrecision(18, 2);
@@ -101,6 +105,22 @@ namespace TravelManagement.DataAccessLayer.Entities
             // Organisations allowed to hand bookings to each other (one row per pair)
             modelBuilder.Entity<OrgLink>().HasIndex(l => new { l.OrgAId, l.OrgBId }).IsUnique();
             modelBuilder.Entity<OrgLink>().ToTable(t => t.HasCheckConstraint("CK_OrgLinks_Order", "\"OrgAId\" < \"OrgBId\""));
+
+            // Trips (multi-day packages). Deleting a trip never deletes its bookings.
+            modelBuilder.Entity<Booking>()
+                .HasOne(b => b.Trip)
+                .WithMany(t => t.Bookings)
+                .HasForeignKey(b => b.TripId)
+                .OnDelete(DeleteBehavior.SetNull);
+            modelBuilder.Entity<Trip>()
+                .HasOne(t => t.Customer)
+                .WithMany()
+                .HasForeignKey(t => t.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<Trip>().HasIndex(t => new { t.OrgId, t.CustomerId, t.EndDate });
+
+            // One set of invoice terms per organisation
+            modelBuilder.Entity<InvoiceSettings>().HasIndex(s => s.OrgId).IsUnique();
 
             // Assignment board / header badge: upcoming bookings of one org
             modelBuilder.Entity<Booking>().HasIndex(b => new { b.OrgId, b.travelDate });
@@ -204,6 +224,8 @@ namespace TravelManagement.DataAccessLayer.Entities
                 new Place { PlaceId = 30, Name = "Palolem",  Aliases = "Palolem Beach",  Zone = PlaceZone.South, PickupAllowed = false, DropAllowed = true, RestrictionMessage = southMsg, OrgId = 1 },
                 new Place { PlaceId = 31, Name = "Agonda",   Aliases = "Agonda Beach",   Zone = PlaceZone.South, PickupAllowed = false, DropAllowed = true, RestrictionMessage = southMsg, OrgId = 1 }
             );
+
+            modelBuilder.Entity<SystemSettings>().HasData(new SystemSettings { Id = 1, SessionDays = TravelManagement.Core.Models.SystemSettings.DefaultSessionDays });
 
             base.OnModelCreating(modelBuilder);
         }

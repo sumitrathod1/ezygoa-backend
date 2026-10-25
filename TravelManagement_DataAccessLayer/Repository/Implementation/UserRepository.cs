@@ -18,6 +18,13 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
             _tenant  = tenant;
         }
 
+        public async Task<int> GetSessionDaysAsync()
+        {
+            var days = await _context.SystemSettings.AsNoTracking()
+                .Where(s => s.Id == 1).Select(s => (int?)s.SessionDays).FirstOrDefaultAsync();
+            return Math.Clamp(days ?? SystemSettings.DefaultSessionDays, 1, SystemSettings.MaxSessionDays);
+        }
+
         /// <summary>Base user query scoped to current org (skipped for SuperAdmin / no-tenant).</summary>
         private IQueryable<User> OrgUsers =>
             _tenant.ShouldFilter

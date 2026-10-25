@@ -6,6 +6,7 @@ using TravelManagement.BusinessLogicLayer.Services.Interface;
 using TravelManagement.Core.Common;
 using TravelManagement.Core.DTOs;
 using TravelManagement.Core.Models;
+using TravelManagement.DataAccessLayer.Repository.Implementation;
 using TravelManagement.DataAccessLayer.Entities;
 
 namespace TravelManagement.API.Controllers
@@ -28,9 +29,12 @@ namespace TravelManagement.API.Controllers
 
         [HttpGet("GetAllVehicles")]
         [Authorize(Roles = "Admin,Employee")]
-        public async Task<IActionResult> GetAllVehicles()
+        public async Task<IActionResult> GetAllVehicles([FromQuery] bool includeRental = false)
         {
             var vehicles = await _vehicleService.GetAllVehiclesAsync();
+            // Rent-a-car placeholders ("RENTAL-…") are not real cars: only the rental screens ask for them
+            if (!includeRental)
+                vehicles = vehicles.Where(v => !AssignmentRules.IsRentalPlaceholder(v.VehicleNumber)).ToList();
             return ApiOk(vehicles);
         }
 
@@ -254,9 +258,11 @@ namespace TravelManagement.API.Controllers
             var targetDate = date ?? DateOnly.FromDateTime(DateTime.Today);
 
             // Was every organisation's vehicles and bookings
-            var allVehicles = await _context.Vehicles
+            var allVehicles = (await _context.Vehicles
                 .Where(v => !_tenant.ShouldFilter || v.OrgId == _tenant.OrgId)
-                .ToListAsync();
+                .ToListAsync())
+                .Where(v => !AssignmentRules.IsRentalPlaceholder(v.VehicleNumber))
+                .ToList();
 
             var busyIds = await _context.Bookings
                 .Where(b => b.travelDate == targetDate && b.Status != Status.Canceled && b.VehicleId != null

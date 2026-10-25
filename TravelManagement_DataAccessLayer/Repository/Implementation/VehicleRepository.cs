@@ -63,6 +63,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 RegistrationDate = vehicle.RegistrationDate,
                 Seatingcapacity  = vehicle.Seatingcapacity,
                 VehicleAge       = Calculations.CalculateAge(vehicle.RegistrationDate, DateTime.Now),
+                RateCategory     = string.IsNullOrWhiteSpace(vehicle.RateCategory) ? null : vehicle.RateCategory.Trim(),
                 OrgId            = _tenant.OrgId > 0 ? _tenant.OrgId : 1,
             };
             await _context.AddAsync(newVehicle);
@@ -89,6 +90,7 @@ namespace TravelManagement.DataAccessLayer.Repository.Implementation
                 existing.EMILender = vehicle.EMILender;
                 existing.TotalEMIs = vehicle.TotalEMIs;
                 existing.PaidEMIs = vehicle.PaidEMIs;
+                existing.RateCategory = string.IsNullOrWhiteSpace(vehicle.RateCategory) ? null : vehicle.RateCategory.Trim();
                 await _context.SaveChangesAsync();
             }
             return vehicle;

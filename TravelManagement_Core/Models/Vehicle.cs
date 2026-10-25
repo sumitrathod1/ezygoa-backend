@@ -34,6 +34,9 @@ namespace TravelManagement.Core.Models
         public int TotalEMIs { get; set; } = 0;
         public int PaidEMIs { get; set; } = 0;
 
+        /// <summary>Row of the invoice "extra hour / km" table this car is charged by (e.g. "Ertiga").</summary>
+        public string? RateCategory { get; set; }
+
         // Multi-tenancy
         public int OrgId { get; set; } = 1;
     }

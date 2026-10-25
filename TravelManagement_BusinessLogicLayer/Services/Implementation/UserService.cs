@@ -34,7 +34,7 @@ namespace TravelManagement.BusinessLogicLayer.Services.Implementation
             if (!user.Status)
                 throw new UnauthorizedAccessException("User account is deactivated. Contact admin.");
 
-            var token = new JwtService(_config).GenerateToken(user);
+            var token = new JwtService(_config).GenerateToken(user, await _userRepo.GetSessionDaysAsync());
             return (user, token);
         }
 
